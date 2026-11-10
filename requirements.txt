@@ -1,0 +1,38 @@
+# ============================================================
+#  Wuzhen East/West Gate visitor sentiment study - Python deps
+# ------------------------------------------------------------
+#  Requires Python 3.9 or newer (3.10 - 3.12 recommended).
+#  If you only have Python 3.7, use requirements-py37.txt instead.
+#
+#  Install:
+#    python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+#
+#  NOTE: this file is intentionally ASCII-only. pip on Chinese
+#  Windows decodes requirement files with the GBK code page, so
+#  any non-ASCII character here makes pip crash with
+#  "UnicodeDecodeError: 'gbk' codec can't decode byte ...".
+# ============================================================
+
+# ---- core (required) ----
+pandas
+numpy
+scikit-learn
+jieba
+matplotlib
+seaborn
+openpyxl
+requests
+tqdm
+
+# ---- recommended ----
+shap
+statsmodels
+joblib
+XlsxWriter
+
+# ---- optional: offline sentiment fallback ----
+snownlp
+
+# ---- optional: advanced local BERT sentiment model (~2 GB) ----
+# torch
+# transformers
