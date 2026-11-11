@@ -1,21 +1,21 @@
 <div align="center">
 
-# 乌镇双栅游客情感对比
+# Sentiment on Both Sides of Wuzhen
 
-**Sentiment on Both Sides of Wuzhen: Dongzha vs. Xizha**
+**Dongzha vs. Xizha: resource-use efficiency and visitor sentiment**
 
-**Zane Zhang（张永轩）**
+**Zane Zhang**
 
-上海师范大学 · 环境与地理科学学院 · 地理信息科学
+Shanghai Normal University · School of Environmental and Geographical Sciences
 
-上海师范大学大学生创新创业训练计划（创新训练类）· 团队项目 · 已结题
+Undergraduate Innovation and Entrepreneurship Programme · completed
 
-[🌐 项目主页](https://zhangyx0803.github.io/projects/wuzhen-twin-gate/) |
-[💻 代码](code/) |
-[📊 数据](#-数据) |
-[📧 联系](#-contact)
+[🌐 Project page](https://zhangyx0803.github.io/projects/wuzhen-twin-gate/) |
+[💻 Code](code/) |
+[📊 Data](#-data) |
+[📧 Contact](#-contact)
 
-*同一座古镇，两道门：13 个脚本从公开点评走到组间检验*
+*One historic town, two gates: thirteen scripts from public reviews to group tests*
 
 </div>
 
@@ -23,147 +23,151 @@
 
 ## 🔥 News
 
-- **[2026-10]** 项目结题；配套软件 **DEA 分析工作台系统** 登记软件著作权（2026SR1091537）
-- **[2026-04]** 立项：活态保护与整体运营模式下历史文化古镇旅游资源转换效率比较研究——以浙江乌镇东栅、西栅为例
-- **[2026-10-15]** 景区经营数据 2016–2024 汇总、两栅对比方法学报告完成
-- **[2026-09-30]** 采集、清洗、主题分类三个脚本跑通
+- **[2026-10]** Programme concluded; the companion tool **DEA Analysis Workbench** is registered as a software copyright (2026SR1091537).
+- **[2026-10]** Annual operating figures 2016–2024 compiled; method review comparing the two gates completed.
+- **[2026-04]** Project started: a comparative study of resource conversion efficiency in historic towns under living-heritage preservation and integrated operation, with Wuzhen Dongzha and Xizha as the case pair.
 
-> 本仓库只放代码，不放原始点评与 POI 数据。
-
----
-
-## 🌟 这是什么
-
-东栅偏原住民生活与观光，西栅偏度假与夜游；门票、业态、空间组织都不同。
-本项目从公开点评出发，回答三个问题：
-
-1. 两栅游客的情感倾向是否有显著差异？
-2. 差异集中在哪些体验维度（餐饮、住宿、拥挤、夜景、服务、价格）？
-3. 差异是否随季节与年份变化？
+> This repository contains code only. Raw reviews and POI data are not distributed.
 
 ---
 
-## ✨ 方法要点
+## 🌟 What this is
 
-- **规则 + 模型并行**：21 类主题词规则作可解释基线，分类模型接住长尾表达
-- **组间检验做多重比较校正**：卡方 / Mann-Whitney U + FDR，避免「21 个主题里挑三个显著」
-- **双指标解释**：置换重要性与 SHAP 同时报告，避免单指标误判
-- **可复现**：所有路径、词典与 Key 集中在 `code/config.py`
+Wuzhen's two gates run on different models: Dongzha on living-heritage preservation and sightseeing, Xizha on
+integrated operation and night tourism. Tickets, business mix and spatial organisation all differ.
+The project asks two questions with data:
+
+1. **Efficiency** — how do the two gates differ in resource conversion efficiency and total factor productivity (DEA-Malmquist, 2016–2024)?
+2. **Experience** — is visitor sentiment significantly different between the gates, along which dimensions
+   (food, lodging, crowding, night scenes, service, price), and does the gap vary by season and year?
 
 ---
 
-## 🔧 流程
+## ✨ Method highlights
+
+- **Rules and a model side by side** — 21 keyword topics give an interpretable baseline; a trained classifier catches long-tail phrasing.
+- **Multiple-testing correction** — chi-square / Mann-Whitney U with FDR control, so "three significant topics out of twenty-one" does not happen by luck.
+- **Two importance measures** — permutation importance and SHAP reported together.
+- **Reproducible** — every path, lexicon and key lives in `code/config.py`.
+
+---
+
+## 🔧 Pipeline
 
 ```mermaid
 flowchart LR
-  A["<b>点评采集</b><br/>01_collect_ctrip.py"] --> C["<b>清洗</b><br/>03_clean.py"]
-  B["<b>高德 POI</b><br/>02_collect_amap_poi.py"] --> C
-  C --> D["<b>地点归属</b><br/>04_segment.py"]
-  D --> E["<b>规则分类</b><br/>05_rule_classify.py"]
-  E --> F["<b>标注表</b><br/>06_make_label_sheet.py"]
-  F --> G["<b>分类模型</b><br/>07_train_classifier.py"]
-  D --> H["<b>情感</b><br/>08_sentiment.py"]
-  G --> I["<b>特征矩阵</b><br/>09_build_features.py"]
+  A["<b>reviews</b><br/>01_collect_ctrip.py"] --> C["<b>clean</b><br/>03_clean.py"]
+  B["<b>Amap POI</b><br/>02_collect_amap_poi.py"] --> C
+  C --> D["<b>gate attribution</b><br/>04_segment.py"]
+  D --> E["<b>rule topics</b><br/>05_rule_classify.py"]
+  E --> F["<b>label sheet</b><br/>06_make_label_sheet.py"]
+  F --> G["<b>classifier</b><br/>07_train_classifier.py"]
+  D --> H["<b>sentiment</b><br/>08_sentiment.py"]
+  G --> I["<b>features</b><br/>09_build_features.py"]
   H --> I
-  I --> J["<b>组间检验</b><br/>10_compare_stats.py"]
+  I --> J["<b>group tests</b><br/>10_compare_stats.py"]
   I --> K["<b>RF + SHAP</b><br/>11_rf_shap.py"]
-  J --> L["<b>图件</b><br/>12_timeseries_plots.py"]
+  J --> L["<b>figures</b><br/>12_timeseries_plots.py"]
   K --> L
 ```
 
 ---
 
-## 🚀 快速开始
+## 🚀 Quick start
 
-### Step 1 — 环境
+### Step 1 — Environment
 
 ```bash
 pip install -r requirements.txt
 python code/00_check_env.py
 ```
 
-Python 3.9+。有 OpenAI Key 走 API 情感后端；没有则自动降级到本地词典。
+Python 3.9+. With an OpenAI key the sentiment stage uses the API backend; without one it falls back to a local lexicon.
 
-### Step 2 — 采集
+### Step 2 — Collect
 
 ```bash
-python code/01_collect_ctrip.py     # 点评：先复制浏览器 cURL 到本地文件
-python code/02_collect_amap_poi.py  # 周边 POI
+python code/01_collect_ctrip.py     # reviews: paste a browser cURL into a local file first
+python code/02_collect_amap_poi.py  # nearby POI
 ```
 
-采集脚本支持断点续采，中断后重跑不会重复。
+Collection is resumable: rerunning after an interruption does not duplicate records.
 
-### Step 3 — 清洗与归属
+### Step 3 — Clean and attribute
 
 ```bash
-python code/03_clean.py      # 去重、去广告、剔除重复景区简介
-python code/04_segment.py    # 东栅 / 西栅 / 双栅 + 分句
+python code/03_clean.py     # deduplicate, drop ads, remove repeated introductions
+python code/04_segment.py   # gate labels (Dongzha / Xizha / both) and sentence splitting
 ```
 
-### Step 4 — 主题分类
+### Step 4 — Topic classification
 
 ```bash
-python code/05_rule_classify.py       # 21 类规则基线
-python code/06_make_label_sheet.py    # 分层抽样，生成人工标注表
-python code/07_train_classifier.py    # 训练后全量预测
+python code/05_rule_classify.py      # 21-topic rule baseline
+python code/06_make_label_sheet.py   # stratified sample for manual labelling
+python code/07_train_classifier.py   # train, then predict on the full corpus
 ```
 
-### Step 5 — 情感与建模
+### Step 5 — Sentiment and modelling
 
 ```bash
-python code/08_sentiment.py        # 情感得分
-python code/09_build_features.py   # 随机森林特征矩阵
-python code/10_compare_stats.py    # 卡方 / Mann-Whitney U / FDR
-python code/11_rf_shap.py          # 置换重要性 + SHAP + 偏依赖
+python code/08_sentiment.py       # sentiment scores
+python code/09_build_features.py  # feature matrix for the random forest
+python code/10_compare_stats.py   # chi-square / Mann-Whitney U / FDR
+python code/11_rf_shap.py         # permutation importance, SHAP, partial dependence
 ```
 
-### Step 6 — 出图
+### Step 6 — Figures
 
 ```bash
-python code/12_timeseries_plots.py  # 时间序列与 300 dpi 图件
+python code/12_timeseries_plots.py  # time series and 300 dpi figures
 ```
 
 ---
 
-## 🗂️ 仓库结构
+## 🗂️ Repository layout
 
 ```text
 code/
-  00_check_env.py          环境自检
-  01_collect_ctrip.py      点评采集（cURL 驱动，可续采）
-  02_collect_amap_poi.py   高德 POI 采集
-  03_clean.py              清洗与去重
-  04_segment.py            地点归属与分句
-  05_rule_classify.py      21 类主题词规则分类
-  06_make_label_sheet.py   分层抽样标注表
-  07_train_classifier.py   分类模型训练与预测
-  08_sentiment.py          情感分析（API / 本地词典）
-  09_build_features.py     特征矩阵
-  10_compare_stats.py      组间检验
-  11_rf_shap.py            随机森林 + SHAP
-  12_timeseries_plots.py   时间序列与出图
-  config.py                路径、词典、Key 集中配置
-  textutil.py              文本工具
+  00_check_env.py          environment check
+  01_collect_ctrip.py      review collection (resumable, cURL driven)
+  02_collect_amap_poi.py   POI collection
+  03_clean.py              cleaning and deduplication
+  04_segment.py            gate attribution and sentence splitting
+  05_rule_classify.py      21-topic keyword classifier
+  06_make_label_sheet.py   stratified labelling sheet
+  07_train_classifier.py   classifier training and prediction
+  08_sentiment.py          sentiment (API or local lexicon)
+  09_build_features.py     feature matrix
+  10_compare_stats.py      group tests
+  11_rf_shap.py            random forest + SHAP
+  12_timeseries_plots.py   time series and figures
+  config.py                paths, lexicons, keys
+  textutil.py              text helpers
+dea/
+  DEA_Malmquist_test_0_*.m MATLAB scripts for the DEA-Malmquist efficiency stage
 requirements.txt
 ```
 
+Paths in the scripts were rewritten to relative folders before publication; point `config.py` at your own data root.
+
 ---
 
-## 📊 数据
+## 📊 Data
 
-| 数据 | 内容 | 用途 |
+| Dataset | Content | Role |
 | --- | --- | --- |
-| 景区游客点评 | 文本、评分、时间、地点 | 主数据 |
-| 高德 POI | 周边业态与设施 | 业态对照 |
-| 人工标注样本 | 分层抽样后人工标主题 | 训练与校验 |
-| 经营数据 | 2016–2024 年度口径 | 背景对照 |
+| Visitor reviews | text, rating, date, gate | primary data |
+| Amap POI | nearby businesses and facilities | business-mix context |
+| Manual labels | stratified sample, hand-tagged topics | training and validation |
+| Operating figures | annual, 2016–2024 | background |
 
-原始点评与 POI 受平台条款约束，不随仓库分发；样例数据与标注表可按需提供。
+Reviews and POI are bound by platform terms and are not distributed; sample sheets are available on request.
 
 ---
 
 ## 📧 Contact
 
-如需数据或合作，请联系：<zhangyx0803@petalmail.com>
+For data or collaboration: <zhangyx0803@petalmail.com>
 
-个人主页：<https://zhangyx0803.github.io/>
+Homepage: <https://zhangyx0803.github.io/>

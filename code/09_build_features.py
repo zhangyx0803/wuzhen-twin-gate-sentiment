@@ -1,22 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-构建随机森林用的特征矩阵。
+Build the feature matrix used by the random forest.
 
-评论级特征（对应原研究的"自变量"）：
-    men_Cxx : 该评论是否提及第 xx 类属性（0/1）              ← 关注什么
-    sen_Cxx : 该评论中第 xx 类句子的平均情感值（-1~1）        ← 怎么看
-    n_cat   : 提及的类别数量
-    log_len : 评论字数对数（控制变量）
-    rating  : 星级评分（若有）
+Review-level features (the "independent variables" of the original study):
+    men_Cxx : whether the review mentions aspect category xx (0/1)                ← what people focus on
+    sen_Cxx : mean sentiment of category-xx sentences in the review (-1~1)        ← how they feel about it
+    n_cat   : number of categories mentioned
+    log_len : log of the review character count (control variable)
+    rating  : star rating (if available)
     month / platform / site
 
-因变量：
-    is_positive : 是否积极（1/0）—— 主模型
-    y_3cls      : 0 消极 / 1 中立 / 2 积极 —— 稳健性
-    pos_prob    : 积极概率（连续）—— 稳健性
+Dependent variables:
+    is_positive : positive or not (1/0) -- main model
+    y_3cls      : 0 negative / 1 neutral / 2 positive -- robustness
+    pos_prob    : positive probability (continuous) -- robustness
 
-输入：comments_sentiment.csv、sentences_sentiment.csv
-输出：data/feature/features_comment.csv
+Input: comments_sentiment.csv, sentences_sentiment.csv
+Output: data/feature/features_comment.csv
       data/feature/features_sentence.csv
 """
 import re
@@ -34,18 +34,18 @@ CATS = list(C.CATEGORIES.keys())
 
 def main():
     if not C.F_SENTIMENT.exists():
-        print("找不到 comments_sentiment.csv，请先运行 08_sentiment.py")
+        print("comments_sentiment.csv not found; run 08_sentiment.py first")
         sys.exit(1)
 
     cmt = pd.read_csv(C.F_SENTIMENT, encoding="utf-8-sig")
     sdf = pd.read_csv(C.F_SENT_SENTIMENT, encoding="utf-8-sig")
-    print(f"评论 {len(cmt)} 条，句子 {len(sdf)} 句")
+    print(f"{len(cmt)} reviews, {len(sdf)} sentences")
 
-    # 选标签列：优先用训练好的模型，没有就用词典规则
+    # Choose the label column: prefer the trained model, fall back to the lexicon rules
     label_col = "cats_clf" if "cats_clf" in sdf.columns else "cats_rule"
-    print(f"使用句级类别标签列：{label_col}")
+    print(f"Using sentence-level category label column: {label_col}")
 
-    # 若分类模型输出了各类别概率，且用户调整了阈值，则按阈值重新判定
+    # If the classifier emitted per-category probabilities and the user changed the threshold, re-decide by threshold
     have_prob = [c for c in CATS if f"prob_{c}" in sdf.columns]
     if have_prob and C.CLF_PROB_THRESHOLD != 0.5:
         P = sdf[[f"prob_{c}" for c in have_prob]].fillna(0).to_numpy()
@@ -53,10 +53,10 @@ def main():
         names = np.array(have_prob)
         sdf["labels"] = ["|".join(names[row]) for row in mask]
         label_col = f"thr{C.CLF_PROB_THRESHOLD}"
-        print(f"  已按概率阈值 {C.CLF_PROB_THRESHOLD} 重新判定类别"
-              f"（覆盖 {len(have_prob)} 个类别）")
+        print(f"  Re-decided categories using probability threshold {C.CLF_PROB_THRESHOLD}"
+              f" (covering {len(have_prob)} categories)")
 
-    # ---------- 句级特征 ----------
+    # ---------- Sentence-level features ----------
     sdf["labels"] = sdf[label_col].fillna("").astype(str)
     srows = []
     for i, r in enumerate(sdf.itertuples(index=False)):
@@ -70,9 +70,9 @@ def main():
         srows.append(row)
     fs = pd.DataFrame(srows)
     fs.to_csv(C.F_FEATURES_SENT, index=False, encoding="utf-8-sig")
-    print(f"句级特征 {fs.shape} → {C.F_FEATURES_SENT}")
+    print(f"Sentence-level features {fs.shape} → {C.F_FEATURES_SENT}")
 
-    # ---------- 评论级特征 ----------
+    # ---------- Review-level features ----------
     agg = {}
     tmp = pd.DataFrame({"cid": sdf["cid"], "score": sdf["sent_score"]})
     for c in CATS:
@@ -95,10 +95,10 @@ def main():
     feats["y_3cls"] = feats["sentiment"]
 
     feats.to_csv(C.F_FEATURES, index=False, encoding="utf-8-sig")
-    print(f"评论级特征 {feats.shape} → {C.F_FEATURES}")
+    print(f"Review-level features {feats.shape} → {C.F_FEATURES}")
 
-    # ---------- 概览 ----------
-    print("\n各景区样本量与积极情感占比：")
+    # ---------- Overview ----------
+    print("\nSample size and positive-sentiment share by scenic area:")
     g = feats.groupby("site").agg(
         评论数=("cid", "count"),
         积极数=("is_positive", "sum"),
@@ -106,7 +106,7 @@ def main():
     g["积极占比"] = (g["积极数"] / g["评论数"] * 100).round(2)
     print(g.to_string())
 
-    print("\n各类属性提及率（按景区）：")
+    print("\nMention rate of each aspect category (by scenic area):")
     rows = []
     for c in CATS:
         r = {"类别": c}
@@ -119,7 +119,7 @@ def main():
     tab.to_csv(C.OUT_TABLE / "属性提及率与情感_概览.csv", index=False, encoding="utf-8-sig")
     print(tab.to_string(index=False))
 
-    # ---------- 诊断 ----------
+    # ---------- Diagnostics ----------
     low, high = [], []
     for c in CATS:
         n = int(feats["men_" + c].sum())
@@ -129,16 +129,16 @@ def main():
         if rate > 0.90:
             high.append((c, rate))
     if low:
-        print("\n[提醒] 以下类别被提及的评论少于 50 条，分组比较的结论要谨慎：")
+        print("\n[Warning] The following categories are mentioned in fewer than 50 reviews; interpret group comparisons with caution:")
         for c, n in low:
-            print(f"    {c}: {n} 条")
+            print(f"    {c}: {n} reviews")
     if high:
-        print("\n[诊断] 以下类别的提及率超过 90%，通常是分类模型「过度预测」造成的：")
+        print("\n[Diagnostic] The following categories have a mention rate above 90%, usually caused by the classifier 'over-predicting':")
         for c, r in high:
             print(f"    {c}: {r * 100:.1f}%")
-        print("    → 处理办法：把 config.py 里的 CLF_PROB_THRESHOLD 调到 0.6 或 0.7，"
-              "然后重跑 09 脚本")
-        print("    → 或者回到 07 脚本查看这一类别的 precision（多半偏低），补充标注后重训")
+        print("    → Fix: raise CLF_PROB_THRESHOLD in config.py to 0.6 or 0.7, "
+              "then re-run script 09")
+        print("    → Or go back to script 07 to check this category's precision (usually low), add labels and retrain")
 
 
 if __name__ == "__main__":

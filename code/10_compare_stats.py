@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-东栅 vs 西栅 的统计检验。
+Statistical tests: East Scenic Area vs West Scenic Area.
 
-包含：
-  1. 描述统计（样本量、评分、情感、评论长度）
-  2. 积极情感比例差异：卡方检验 + Cramér's V 效应量
-  3. 评分 / 情感分值差异：Mann-Whitney U 检验 + Cliff's delta 效应量
-  4. 每个属性类别的提及率差异：卡方检验 + BH-FDR 多重比较校正
-  5. 每个属性类别的属性情感差异：Mann-Whitney U + FDR 校正
+Contents:
+  1. Descriptive statistics (sample size, rating, sentiment, review length)
+  2. Difference in positive-sentiment share: chi-square test + Cramér's V effect size
+  3. Differences in rating / sentiment score: Mann-Whitney U test + Cliff's delta effect size
+  4. Difference in mention rate for each aspect category: chi-square test + BH-FDR multiple-comparison correction
+  5. Difference in aspect sentiment for each aspect category: Mann-Whitney U + FDR correction
 
-输入：data/feature/features_comment.csv
-输出：outputs/tables/对比检验.xlsx（多工作表）
+Input: data/feature/features_comment.csv
+Output: outputs/tables/对比检验.xlsx (multiple worksheets)
 """
 import sys
 from pathlib import Path
@@ -27,7 +27,7 @@ E, W = C.SITE_EAST, C.SITE_WEST
 
 
 def bh_fdr(pvals):
-    """Benjamini-Hochberg FDR 校正，返回校正后的 q 值"""
+    """Benjamini-Hochberg FDR correction; returns the corrected q values"""
     p = np.asarray(pvals, dtype=float)
     n = len(p)
     order = np.argsort(p)
@@ -54,7 +54,7 @@ def cliffs_delta(a, b):
     a, b = np.asarray(a, float), np.asarray(b, float)
     if len(a) == 0 or len(b) == 0:
         return np.nan
-    # 用秩和近似，避免 O(n*m)
+    # Approximate via the rank sum to avoid O(n*m)
     u = stats.mannwhitneyu(a, b, alternative="two-sided").statistic
     return float(2 * u / (len(a) * len(b)) - 1)
 
@@ -67,21 +67,21 @@ def stars(p):
 
 def main():
     if not C.F_FEATURES.exists():
-        print("找不到 features_comment.csv，请先运行 09_build_features.py")
+        print("features_comment.csv not found; run 09_build_features.py first")
         sys.exit(1)
 
     df = pd.read_csv(C.F_FEATURES, encoding="utf-8-sig")
     sub = df[df["site"].isin([E, W])].copy()
     a = sub[sub["site"] == E]
     b = sub[sub["site"] == W]
-    print(f"{E}: {len(a)} 条 | {W}: {len(b)} 条")
+    print(f"{E}: {len(a)} reviews | {W}: {len(b)} reviews")
     if len(a) < 30 or len(b) < 30:
-        print("!! 某一组样本过少，检验结果不可靠。")
+        print("!! One group has too few samples; the test results are unreliable.")
         sys.exit(1)
 
     out = {}
 
-    # ---------- 1. 描述统计 ----------
+    # ---------- 1. Descriptive statistics ----------
     desc = []
     for name, g in [(E, a), (W, b)]:
         desc.append({
@@ -99,7 +99,7 @@ def main():
     out["1_描述统计"] = pd.DataFrame(desc)
     print("\n" + out["1_描述统计"].to_string(index=False))
 
-    # ---------- 2. 积极情感比例：卡方 ----------
+    # ---------- 2. Positive sentiment share: chi-square ----------
     tab = pd.crosstab(sub["site"], sub["sentiment_label"])
     tab = tab.reindex([E, W])
     chi2, p, dof, exp = stats.chi2_contingency(tab)
@@ -109,11 +109,11 @@ def main():
         "p值": p, "显著性": stars(p), "Cramér's_V": round(v, 4),
         "结论": f"两组情感分布{'存在' if p < 0.05 else '不存在'}显著差异",
     }])
-    print("\n情感分布卡方检验：")
+    print("\nChi-square test of the sentiment distribution:")
     print(tab.to_string())
     print(out["2_情感分布卡方"].to_string(index=False))
 
-    # ---------- 3. 评分 / 情感分值 ----------
+    # ---------- 3. Rating / sentiment score ----------
     rows = []
     for col, label in [("rating", "星级评分"), ("positive_prob", "积极概率"),
                        ("n_char", "评论字数"), ("n_cat", "提及类别数")]:
@@ -127,10 +127,10 @@ def main():
                      "Cliff's_delta": round(cliffs_delta(x, y), 4),
                      "方向": "东栅更高" if x.mean() > y.mean() else "西栅更高"})
     out["3_连续变量差异"] = pd.DataFrame(rows)
-    print("\n连续变量差异（Mann-Whitney U）：")
+    print("\nDifferences in continuous variables (Mann-Whitney U):")
     print(out["3_连续变量差异"].to_string(index=False))
 
-    # ---------- 4. 属性提及率差异 ----------
+    # ---------- 4. Differences in aspect mention rates ----------
     rows = []
     for c in CATS:
         col = "men_" + c
@@ -157,11 +157,11 @@ def main():
     t4["关注度更高方"] = np.where(t4["提及率差(西-东)%"] > 0, "西栅", "东栅")
     t4 = t4.sort_values("q值(FDR)")
     out["4_属性提及率差异"] = t4
-    print("\n属性提及率差异（FDR 校正后）：")
+    print("\nDifferences in aspect mention rates (after FDR correction):")
     print(t4[["类别", "东栅提及率%", "西栅提及率%", "提及率差(西-东)%", "q值(FDR)", "显著性"]]
           .to_string(index=False))
 
-    # ---------- 5. 属性情感差异 ----------
+    # ---------- 5. Differences in aspect sentiment ----------
     rows = []
     for c in CATS:
         col = "sen_" + c
@@ -185,11 +185,11 @@ def main():
     t5["显著性"] = t5["q值(FDR)"].map(stars)
     t5 = t5.sort_values("q值(FDR)")
     out["5_属性情感差异"] = t5
-    print("\n属性情感差异（FDR 校正后）：")
+    print("\nDifferences in aspect sentiment (after FDR correction):")
     print(t5[["类别", "东栅属性情感", "西栅属性情感", "情感差(西-东)", "q值(FDR)", "显著性"]]
           .to_string(index=False))
 
-    # ---------- 6. H2 专项：商业化在东栅是否更负面 ----------
+    # ---------- 6. H2 focus: is commercialization more negative in the East Scenic Area ----------
     rows = []
     for c in ["C09_商业化程度", "C04_夜景灯光", "C12_住宿民宿",
               "C16_服务态度", "C06_历史底蕴", "C15_门票性价比"]:
@@ -206,18 +206,18 @@ def main():
                      "解读": ("西栅更正面" if y.mean() > x.mean() else "东栅更正面")})
     if rows:
         out["6_关键属性专项"] = pd.DataFrame(rows)
-        print("\n关键属性专项对比（H2 检验）：")
+        print("\nFocused comparison of key aspects (H2 test):")
         print(out["6_关键属性专项"].to_string(index=False))
 
-    # ---------- 输出 ----------
+    # ---------- Output ----------
     fp = C.OUT_TABLE / "对比检验.xlsx"
     with pd.ExcelWriter(fp, engine="openpyxl") as w:
         for k, v in out.items():
             v.to_excel(w, sheet_name=k[:31], index=False)
     print("=" * 60)
-    print(f"全部检验结果 → {fp}")
-    print("\n论文里怎么报：卡方检验报 χ²、p、Cramér's V；")
-    print("组间比较报 U、p、Cliff's delta；多重比较必须说明用了 BH-FDR 校正。")
+    print(f"All test results → {fp}")
+    print("\nHow to report this in the paper: for chi-square tests report χ², p, and Cramér's V;")
+    print("for between-group comparisons report U, p, and Cliff's delta; for multiple comparisons state that BH-FDR correction was applied.")
 
 
 if __name__ == "__main__":

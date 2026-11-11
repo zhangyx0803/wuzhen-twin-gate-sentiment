@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-生成人工标注表（Excel）。
+Generate the manual annotation sheet (Excel).
 
-抽样策略（分层）：
-  每类取 60 条"词典命中"的句子（真实正例）
-  + 300 条词典未命中的句子（难负例，最容易暴露模型缺陷）
-  + 200 条完全随机句子（覆盖长尾）
-目标总量约 1500-1800 句，标注 3-4 小时可完成。
+Sampling strategy (stratified):
+  60 sentences per category with a lexicon hit (true positives)
+  + 300 sentences without any lexicon hit (hard negatives, the most likely to expose model flaws)
+  + 200 fully random sentences (to cover the long tail)
+The target total is about 1500-1800 sentences, 3-4 hours of annotation.
 
-输入：data/clean/sentences_rule_label.csv
-输出：data/label/label_sheet.xlsx
+Input: data/clean/sentences_rule_label.csv
+Output: data/label/label_sheet.xlsx
 """
 import random
 import re
@@ -31,12 +31,12 @@ N_RANDOM = 200
 
 def main():
     if not C.F_SENT_LABEL_RULE.exists():
-        print("找不到 sentences_rule_label.csv，请先运行 05_rule_classify.py")
+        print("Cannot find sentences_rule_label.csv, please run 05_rule_classify.py first")
         sys.exit(1)
 
     sdf = pd.read_csv(C.F_SENT_LABEL_RULE, encoding="utf-8-sig")
     sdf = sdf[sdf["n_char"] >= 6].copy()
-    print(f"候选句子 {len(sdf)} 句")
+    print(f"{len(sdf)} candidate sentences")
 
     picked = set()
     rows = []
@@ -53,7 +53,7 @@ def main():
     for c in CATS:
         sub = sdf[sdf["cats_rule"].str.contains(re.escape(c))]
         if len(sub) == 0:
-            print(f"  {c}: 无命中样本，跳过")
+            print(f"  {c}: no matching sample, skipped")
             continue
         add(sub.sample(min(N_PER_CAT, len(sub)), random_state=C.RANDOM_STATE), f"命中_{c}")
 
@@ -66,7 +66,7 @@ def main():
     sheet = pd.DataFrame(rows).sample(frac=1, random_state=C.RANDOM_STATE).reset_index(drop=True)
     sheet.insert(0, "序号", range(1, len(sheet) + 1))
 
-    # ---------- 说明页 ----------
+    # ---------- Instruction sheet ----------
     guide = [
         ["一、这份表怎么用", ""],
         ["", "1. 打开『标注』工作表，只看『句子』列，在『你的标注』列填写类别名称。"],
@@ -101,11 +101,11 @@ def main():
         ws.freeze_panes = "C2"
 
     print("=" * 60)
-    print(f"标注表已生成 → {C.F_LABEL_SHEET}")
-    print(f"共 {len(sheet)} 句，来源分布：")
+    print(f"Annotation sheet generated → {C.F_LABEL_SHEET}")
+    print(f"{len(sheet)} sentences in total, source distribution:")
     print(sheet["抽样来源"].value_counts().head(25).to_string())
-    print("\n下一步：用 Excel 打开它，把『你的标注』列填好，")
-    print(f"另存为 {C.F_LABEL_DONE}")
+    print("\nNext: open it in Excel and fill in the 『你的标注』 column,")
+    print(f"then save it as {C.F_LABEL_DONE}")
 
 
 if __name__ == "__main__":

@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-训练 AI 语料分类模型（多标签文本分类）。
+Train the AI corpus classification model (multi-label text classification).
 
-模型：TF-IDF（字级 1-2 gram）+ 逻辑回归（OvR 多标签）
-为什么选它：中文不需要分词、几千条标注就能到较高精度、可解释（能导出每类的关键词）、
-           CPU 上几十秒训完。原研究用的是"信息量最高的 2000 个特征词"，
-           TF-IDF 自动完成这件事。
+Model: TF-IDF (character-level 1-2 grams) + logistic regression (OvR multi-label)
+Why this choice: Chinese needs no tokenization, a few thousand labeled sentences reach decent accuracy,
+           it is interpretable (per-category keywords can be exported) and trains in seconds on a CPU.
+           The original study used the 2000 most informative feature words; TF-IDF does that automatically.
 
-输入：data/label/label_done.xlsx
-输出：data/feature/clf_model.joblib
-      outputs/tables/分类模型评估.txt
-      outputs/tables/分类模型_各类指标.csv
-      outputs/tables/分类模型_关键词.csv
-      outputs/tables/分类模型_错误样例.csv
-      data/clean/sentences_clf_label.csv（对全量句子的预测结果）
+Input: data/label/label_done.xlsx
+Output: data/feature/clf_model.joblib
+        outputs/tables/分类模型评估.txt
+        outputs/tables/分类模型_各类指标.csv
+        outputs/tables/分类模型_关键词.csv
+        outputs/tables/分类模型_错误样例.csv
+        data/clean/sentences_clf_label.csv (predictions for all sentences)
 """
 import difflib
 import re
@@ -37,7 +37,7 @@ try:
                                  accuracy_score, hamming_loss)
     from sklearn.preprocessing import MultiLabelBinarizer
 except ImportError:
-    print("缺少 scikit-learn：python -m pip install scikit-learn")
+    print("Missing scikit-learn: python -m pip install scikit-learn")
     sys.exit(1)
 
 try:
@@ -47,17 +47,17 @@ except ImportError:
     import pickle
     dump = lambda o, p: pickle.dump(o, open(p, "wb"))
     load = lambda p: pickle.load(open(p, "rb"))
-    print("[提示] 未安装 joblib，改用 pickle（功能相同）")
+    print("[note] joblib is not installed, falling back to pickle (same functionality)")
 
 
 # ============================================================
-# 解析人工标注
+# Parse the manual annotations
 # ============================================================
 SPLIT_RE = re.compile(r"[|｜、,，;；/\s]+")
 
 
 def parse_labels(s):
-    """把 'C01|C04' / '夜景灯光,氛围' / '无' 解析成标准类别名列表"""
+    """Parse 'C01|C04' / '夜景灯光,氛围' / '无' into a list of standard category names"""
     if pd.isna(s):
         return []
     txt = str(s).strip()
@@ -68,7 +68,7 @@ def parse_labels(s):
         part = part.strip()
         if not part:
             continue
-        if part in CATS:                                   # 全名
+        if part in CATS:                                   # full name
             out.append(part)
             continue
         code = part.upper()
@@ -76,7 +76,7 @@ def parse_labels(s):
         if hit:
             out.append(hit[0])
             continue
-        hit = [c for c in CATS if part in c]                # 部分包含
+        hit = [c for c in CATS if part in c]                # partial containment
         if hit:
             out.append(hit[0])
             continue
@@ -84,57 +84,57 @@ def parse_labels(s):
         if near:
             out.append(near[0])
         else:
-            print(f"  [无法识别] '{part}'（原始内容：{txt[:40]}）")
+            print(f"  [unrecognized] '{part}' (raw content: {txt[:40]})")
     return sorted(set(out))
 
 
 def main():
     src = C.F_LABEL_DONE if C.F_LABEL_DONE.exists() else C.F_LABEL_SHEET
     if not src.exists():
-        print("找不到标注文件。请先运行 06_make_label_sheet.py 并完成人工标注。")
+        print("Cannot find the annotation file. Please run 06_make_label_sheet.py first and complete the manual annotation.")
         sys.exit(1)
     if src == C.F_LABEL_SHEET:
-        print(f"[注意] 没找到 {C.F_LABEL_DONE.name}，用未完成的 {C.F_LABEL_SHEET.name} 试跑。")
-        print("       论文里的正式结果必须用人工标注后的 label_done.xlsx。")
+        print(f"[note] {C.F_LABEL_DONE.name} not found, doing a trial run with the unfinished {C.F_LABEL_SHEET.name}.")
+        print("       Formal results in the paper must use the manually annotated label_done.xlsx.")
 
     df = pd.read_excel(src, sheet_name="标注")
     df = df[df["句子"].notna()].copy()
     df["labels"] = df["你的标注"].map(parse_labels)
     labeled = df[df["你的标注"].notna() & (df["你的标注"].astype(str).str.strip() != "")]
-    print(f"读入 {len(df)} 句，其中已标注 {len(labeled)} 句")
+    print(f"Read {len(df)} sentences, {len(labeled)} of them annotated")
 
     if len(labeled) < 200:
-        print("!! 已标注样本太少（<200），模型会不可靠。请至少标 1000 句。")
-        print("   如果时间实在不够：可以直接用 05 的词典分类结果作为主结果，")
-        print("   在论文里说明『采用领域词典规则分类』，并做人工抽样验证准确率。")
+        print("!! Too few annotated samples (<200), the model would be unreliable. Please label at least 1000 sentences.")
+        print("   If you are really short of time: use the lexicon classification from 05 as the main result,")
+        print("   state in the paper that you used domain-lexicon rule-based classification, and validate the accuracy on a manual sample.")
         sys.exit(1)
 
     texts = labeled["句子"].astype(str).tolist()
     Y = labeled["labels"].tolist()
 
-    # 去掉标注里从没出现过的类别（没法训练）
+    # Drop categories that never appear in the annotations (they cannot be trained)
     from collections import Counter
     cnt = Counter(c for L in Y for c in L)
     active = [c for c in CATS if cnt.get(c, 0) >= 5]
     dropped = [c for c in CATS if c not in active]
     if dropped:
-        print(f"[提示] 以下类别标注样本 <5，本次不训练：{dropped}")
+        print(f"[note] these categories have <5 annotated samples and are not trained this time: {dropped}")
     Y = [[c for c in L if c in active] for L in Y]
 
     mlb = MultiLabelBinarizer(classes=active)
     Ybin = mlb.fit_transform(Y)
-    print(f"标签矩阵：{Ybin.shape[0]} 样本 × {Ybin.shape[1]} 类别")
-    print("各类标注数量：")
+    print(f"Label matrix: {Ybin.shape[0]} samples × {Ybin.shape[1]} categories")
+    print("Annotated count per category:")
     print(pd.Series(Ybin.sum(axis=0), index=active).sort_values(ascending=False).to_string())
 
-    # ---------- 特征 ----------
+    # ---------- Features ----------
     vec = TfidfVectorizer(analyzer="char", ngram_range=(1, 2),
                           min_df=2, max_features=60000,
                           sublinear_tf=True, norm="l2")
     X = vec.fit_transform(texts)
-    print(f"特征矩阵：{X.shape}")
+    print(f"Feature matrix: {X.shape}")
 
-    # ---------- 划分（同时保留原始下标，便于回查错误样例的原句）----------
+    # ---------- Split (keeping the original indices so error samples can be traced back) ----------
     all_idx = np.arange(len(texts))
     itr, ite = train_test_split(all_idx, test_size=C.TEST_SIZE,
                                 random_state=C.RANDOM_STATE)
@@ -144,30 +144,30 @@ def main():
     clf.fit(Xtr, Ytr)
     Ypred = clf.predict(Xte)
 
-    # ---------- 评估 ----------
+    # ---------- Evaluation ----------
     lines = []
     lines.append("=" * 70)
-    lines.append("AI 语料分类模型 · 评估报告")
+    lines.append("AI corpus classification model · evaluation report")
     lines.append("=" * 70)
-    lines.append(f"标注样本数        : {len(texts)}")
-    lines.append(f"类别数            : {len(active)}")
-    lines.append(f"特征维度(TF-IDF)  : {X.shape[1]}")
-    lines.append(f"训练/验证划分     : {int((1 - C.TEST_SIZE) * 100)}% / {int(C.TEST_SIZE * 100)}%")
+    lines.append(f"Labeled samples      : {len(texts)}")
+    lines.append(f"Categories           : {len(active)}")
+    lines.append(f"Feature dim (TF-IDF) : {X.shape[1]}")
+    lines.append(f"Train/validation     : {int((1 - C.TEST_SIZE) * 100)}% / {int(C.TEST_SIZE * 100)}%")
     lines.append("")
-    lines.append(f"完全匹配准确率(子集): {accuracy_score(Yte, Ypred):.4f}")
+    lines.append(f"Exact-match accuracy (subset): {accuracy_score(Yte, Ypred):.4f}")
     lines.append(f"F1-micro          : {f1_score(Yte, Ypred, average='micro', zero_division=0):.4f}")
     lines.append(f"F1-macro          : {f1_score(Yte, Ypred, average='macro', zero_division=0):.4f}")
     lines.append(f"Hamming loss      : {hamming_loss(Yte, Ypred):.4f}")
     lines.append("")
     try:
         cv = cross_val_score(clf, X, Ybin, cv=C.CV_FOLDS, scoring="f1_micro")
-        lines.append(f"{C.CV_FOLDS} 折交叉验证 F1-micro: {cv.mean():.4f} (+/- {cv.std():.4f})")
-        lines.append(f"   各折: {[round(v, 4) for v in cv]}")
+        lines.append(f"{C.CV_FOLDS}-fold cross-validation F1-micro: {cv.mean():.4f} (+/- {cv.std():.4f})")
+        lines.append(f"   per fold: {[round(v, 4) for v in cv]}")
     except Exception as e:
-        lines.append(f"(交叉验证跳过: {e})")
+        lines.append(f"(cross-validation skipped: {e})")
     lines.append("")
     lines.append("-" * 70)
-    lines.append("各类别指标（precision / recall / f1 / support）")
+    lines.append("Per-category metrics (precision / recall / f1 / support)")
     lines.append("-" * 70)
     rep = classification_report(Yte, Ypred, target_names=active,
                                 zero_division=0, digits=4)
@@ -176,12 +176,12 @@ def main():
     (C.OUT_TABLE / "分类模型评估.txt").write_text(report_txt, encoding="utf-8")
     print("\n" + report_txt)
 
-    # 各类指标表
+    # Per-category metrics table
     repd = classification_report(Yte, Ypred, target_names=active,
                                  zero_division=0, output_dict=True)
     pd.DataFrame(repd).T.to_csv(C.OUT_TABLE / "分类模型_各类指标.csv", encoding="utf-8-sig")
 
-    # ---------- 每类关键词（可解释性，论文里很好用） ----------
+    # ---------- Per-category keywords (interpretability, very useful in a paper) ----------
     feats = np.array(vec.get_feature_names_out())
     rows = []
     for i, c in enumerate(active):
@@ -193,7 +193,7 @@ def main():
     pd.DataFrame(rows).to_csv(C.OUT_TABLE / "分类模型_关键词.csv",
                               index=False, encoding="utf-8-sig")
 
-    # ---------- 错误样例（迭代改进用） ----------
+    # ---------- Error samples (for iterative improvement) ----------
     errs = []
     for pos, orig in enumerate(ite):
         true_set = set(np.array(active)[Yte[pos] == 1])
@@ -205,13 +205,13 @@ def main():
     if errs:
         pd.DataFrame(errs).to_csv(C.OUT_TABLE / "分类模型_错误样例.csv",
                                   index=False, encoding="utf-8-sig")
-        print(f"错误样例 {len(errs)} 条 → outputs/tables/分类模型_错误样例.csv")
-        print("   → 看完这些错误，回到 06 补充标注（重点标错误的类型），再重训一轮")
+        print(f"Error samples: {len(errs)} → outputs/tables/分类模型_错误样例.csv")
+        print("   → After reviewing these errors, go back to 06 and annotate more (focus on the error types), then retrain")
 
-    # ---------- 保存模型 ----------
+    # ---------- Save the model ----------
     dump({"vec": vec, "clf": clf, "mlb": mlb, "active": active}, C.F_CLF_MODEL)
 
-    # ---------- 全量预测 ----------
+    # ---------- Full prediction ----------
     if C.F_SENT_LABEL_RULE.exists():
         sdf = pd.read_csv(C.F_SENT_LABEL_RULE, encoding="utf-8-sig")
         Xall = vec.transform(sdf["sentence"].astype(str))
@@ -226,11 +226,11 @@ def main():
             for j, c in enumerate(active):
                 sdf["prob_" + c] = np.round(Prob[:, j], 4)
         sdf.to_csv(C.F_SENT_CLF, index=False, encoding="utf-8-sig")
-        print(f"全量 {len(sdf)} 句预测完成 → {C.F_SENT_CLF}")
+        print(f"Predicted all {len(sdf)} sentences → {C.F_SENT_CLF}")
 
     print("=" * 70)
-    print(f"模型已保存 → {C.F_CLF_MODEL}")
-    print(f"精度达标线：F1-micro >= 0.85（原研究报告 86% 精度）")
+    print(f"Model saved → {C.F_CLF_MODEL}")
+    print(f"Accuracy target: F1-micro >= 0.85 (the original study reported 86% accuracy)")
 
 
 if __name__ == "__main__":

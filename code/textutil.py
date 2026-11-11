@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-中文文本公共工具：分词 / 分句 / 停用词 / 中文字体。
-被 03、04、05、07、11 等脚本共用。
+Shared Chinese-text utilities: tokenization / sentence splitting / stopwords / Chinese font.
+Used by scripts 03, 04, 05, 07, 11 and others.
 """
 import re
 from pathlib import Path
 
 import config as C
 
-# ---------- jieba 可选 ----------
+# ---------- jieba is optional ----------
 try:
     import jieba
     jieba.setLogLevel(60)
@@ -46,13 +46,13 @@ STOPWORDS = load_stopwords()
 
 
 def tokenize(text: str):
-    """分词。有 jieba 用 jieba；没有则用「单字 + 双字组合」兜底。"""
+    """Tokenize. Use jieba when available; otherwise fall back to single characters + bigrams."""
     text = re.sub(r"\s+", "", text)
     if not text:
         return []
     if HAS_JIEBA:
         return [w for w in jieba.lcut(text) if w.strip()]
-    # 兜底：中文按字，英文/数字按词，并补充相邻字的二元组
+    # Fallback: Chinese by character, English/numbers by word, plus bigrams of adjacent characters
     chars = re.findall(r"[\u4e00-\u9fa5]", text)
     words = re.findall(r"[A-Za-z0-9]+", text)
     bigrams = [chars[i] + chars[i + 1] for i in range(len(chars) - 1)]
@@ -60,7 +60,7 @@ def tokenize(text: str):
 
 
 def content_words(text: str):
-    """去掉停用词后的实词"""
+    """Content words after removing stopwords"""
     return [w for w in tokenize(text)
             if w not in STOPWORDS and len(w.strip()) > 1 or
             (len(w) == 1 and re.match(r"[\u4e00-\u9fa5]", w) and w not in STOPWORDS)]
@@ -68,8 +68,8 @@ def content_words(text: str):
 
 def split_sentences(text: str, strong=None, weak=None, max_len=None):
     """
-    分句：先按强标点（。！？；）切；
-    切出来的句子若仍超过 max_len 字，再按弱标点（，、）继续切。
+    Split sentences: first split on strong punctuation (。！？；);
+    if a resulting sentence still exceeds max_len characters, split it further on weak punctuation (，、).
     """
     strong = strong or C.STRONG_PUNCT
     weak = weak or C.WEAK_PUNCT
@@ -100,7 +100,7 @@ def split_sentences(text: str, strong=None, weak=None, max_len=None):
 
 
 def norm_text(t: str) -> str:
-    """强归一化：用于去重比对"""
+    """Strong normalization: used for duplicate comparison"""
     t = str(t)
     t = re.sub(r"<[^>]+>", " ", t)
     t = re.sub(r"https?://\S+|www\.\S+", " ", t)
@@ -109,7 +109,7 @@ def norm_text(t: str) -> str:
 
 
 def set_chinese_font():
-    """给 matplotlib 设置中文字体，避免图上出现方框"""
+    """Set a Chinese font for matplotlib so no boxes appear in the figures"""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -123,5 +123,5 @@ def set_chinese_font():
         plt.rcParams["axes.unicode_minus"] = False
         return plt
     except Exception as e:
-        print(f"[警告] 设置中文字体失败: {e}")
+        print(f"[Warning] failed to set the Chinese font: {e}")
         return None

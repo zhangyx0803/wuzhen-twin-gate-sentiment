@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-全局配置。所有脚本都从这里读路径和参数。
-你只需要改这一个文件。
+Global configuration. All scripts read paths and parameters from here.
+This is the only file you need to edit.
 """
 from pathlib import Path
 
 # ============================================================
-# 一、目录
+# 1. Directories
 # ============================================================
-ROOT = Path(__file__).resolve().parent.parent          # 项目根目录（自动识别：改目录名、换盘符都不影响）
+ROOT = Path(__file__).resolve().parent.parent          # Project root (auto-detected: renaming the folder or switching drives has no effect)
 DATA_RAW     = ROOT / "data" / "raw"
 DATA_CLEAN   = ROOT / "data" / "clean"
 DATA_LABEL   = ROOT / "data" / "label"
@@ -23,43 +23,43 @@ for _d in (DATA_RAW, DATA_CLEAN, DATA_LABEL, DATA_FEATURE,
     _d.mkdir(parents=True, exist_ok=True)
 
 # ============================================================
-# 二、研究范围
+# 2. Research scope
 # ============================================================
 SITE_EAST = "东栅"
 SITE_WEST = "西栅"
-SITE_BOTH = "双栅"      # 联票评论（同时提到东栅和西栅）
-SITE_UNK  = "未提及"    # 文本里没提，且页面标签也拿不到
+SITE_BOTH = "双栅"      # combo-ticket reviews (mention both the East and West Scenic Areas)
+SITE_UNK  = "未提及"    # not mentioned in the text, and not available from the page tags either
 
 SITES = [SITE_EAST, SITE_WEST]
 
-# 游客评论里提到"整个乌镇"时的兜底关键词（不含东/西栅字样）
+# Fallback keywords for when a review mentions "the whole Wuzhen" (without the East/West wording)
 UZHEN_WORDS = ["乌镇", "Wuzhen", "wuzhen"]
 
 # ============================================================
-# 三、清洗参数
+# 3. Cleaning parameters
 # ============================================================
-MIN_LEN = 8            # 评论最短保留字数（东栅评论偏短，别再往上调）
-MAX_LEN = 3000         # 超长评论截断（一般是复制粘贴的攻略）
-DUP_SENT_MIN_COUNT = 3 # 同一句子重复出现 >= 该次数 → 判为复制粘贴的景区简介，删除
-DUP_SENT_MIN_WORDS = 6 # 且去掉停用词后至少这么多词，才判定
+MIN_LEN = 8            # Minimum characters kept per review (East Scenic Area reviews are short; do not raise this)
+MAX_LEN = 3000         # Truncate over-long reviews (usually copy-pasted travel guides)
+DUP_SENT_MIN_COUNT = 3 # A sentence repeated >= this many times -> treated as a copy-pasted scenic-area intro and removed
+DUP_SENT_MIN_WORDS = 6 # and only if it has at least this many words after stopword removal
 
-# 分句：先按强标点切；若切出的句子还很长，再按逗号切
+# Sentence splitting: first split on strong punctuation; if a resulting sentence is still long, split on commas too
 STRONG_PUNCT = "。！？!?；;\n\r"
 WEAK_PUNCT   = "，,、 "
-MAX_SENT_LEN = 60      # 句子超过 60 字才用逗号继续切
+MAX_SENT_LEN = 60      # Only keep splitting a sentence on commas when it exceeds 60 characters
 
-# 广告/引流词：命中即整条删除
+# Advertising / traffic-diverting words: the whole review is removed if any is hit
 AD_WORDS = ["加微信", "微信号", "加我微信", "VX", "vx", "QQ群", "代购", "私信我",
             "扫码加", "免费领取", "优惠券群", "带货", "推广", "广告位", "请加",
             "☎", "电话咨询", "旅行社报名"]
 
 # ============================================================
-# 四、21 类古镇景区属性词典（关键词匹配的基线分类器）
-#     规则：句子中命中该类别任一关键词 → 该句子属于该类别（可多标签）
-#     词典可以而且应该持续增补：看 05 脚本打印的"未命中样例"，把新词加进来
+# 4. Dictionary of 21 old-town aspect categories (keyword-matching baseline classifier)
+#     Rule: if a sentence hits any keyword of a category -> the sentence belongs to that category (multi-label allowed)
+#     The dictionary can and should keep growing: look at the "unmatched examples" printed by script 05 and add new words
 # ============================================================
 CATEGORIES = {
-    # ---------- A 景观风貌 ----------
+    # ---------- A Landscape and appearance ----------
     "C01_水乡建筑风貌": ["白墙", "黛瓦", "黑瓦", "马头墙", "木雕", "砖雕", "石雕", "古建筑", "老房子",
                     "老宅", "明清", "雕花", "古色古香", "青石板", "石板路", "木结构", "骑楼",
                     "临水而建", "枕水", "建筑"],
@@ -71,7 +71,7 @@ CATEGORIES = {
     "C05_自然生态":     ["绿化", "柳树", "花草", "荷花", "竹林", "植被", "空气清新", "鸟鸣",
                     "蓝天", "生态", "树荫"],
 
-    # ---------- B 文化体验 ----------
+    # ---------- B Cultural experience ----------
     "C06_历史底蕴":     ["历史", "千年", "文化底蕴", "古镇", "底蕴", "古朴", "岁月", "沧桑",
                     "故事", "人文", "传统", "老底子", "原汁原味"],
     "C07_民俗演艺":     ["皮影", "花鼓戏", "评弹", "戏曲", "庙会", "香市", "戏剧节", "演出",
@@ -85,7 +85,7 @@ CATEGORIES = {
     "C10_非遗手工艺":   ["蓝印花布", "染布", "染坊", "三白酒", "酿酒", "手工", "手作", "织布",
                     "竹编", "花灯", "油纸伞", "杭白菊", "姑嫂饼", "工艺品"],
 
-    # ---------- C 基础设施 ----------
+    # ---------- C Infrastructure ----------
     "C11_餐饮美食":     ["小吃", "餐厅", "美食", "味道", "好吃", "难吃", "定胜糕", "羊肉面",
                     "酱鸭", "臭豆腐", "萝卜丝饼", "馄饨", "面馆", "吃饭", "菜品", "早餐",
                     "咖啡馆", "茶室", "饭店", "青团"],
@@ -98,7 +98,7 @@ CATEGORIES = {
     "C15_门票性价比":   ["门票", "联票", "票价", "价格", "性价比", "太贵", "便宜", "划算", "套票",
                     "免费", "收费", "消费高", "不值", "值不值"],
 
-    # ---------- D 服务管理 ----------
+    # ---------- D Service and management ----------
     "C16_服务态度":     ["工作人员", "服务态度", "讲解员", "热情", "态度好", "态度差", "服务",
                     "员工", "保安", "志愿者", "咨询", "投诉", "贴心"],
     "C17_拥挤客流":     ["人多", "拥挤", "排队", "人流", "扎堆", "清静", "安静", "冷清",
@@ -108,22 +108,22 @@ CATEGORIES = {
     "C19_安全治安":     ["安全", "治安", "放心", "危险", "护栏", "走失", "安保", "应急",
                     "急救", "防火"],
 
-    # ---------- E 情感体验 ----------
+    # ---------- E Emotional experience ----------
     "C20_氛围放松":     ["氛围", "宁静", "惬意", "放松", "舒服", "悠闲", "恬静", "慢生活",
                     "沉浸", "心情", "治愈", "静谧", "安详", "慢下来", "远离喧嚣", "烟火气"],
     "C21_拍照打卡社交": ["拍照", "写真", "汉服", "打卡", "出片", "网红", "亲子", "带娃", "孩子",
                     "朋友", "情侣", "闺蜜", "团建", "摄影", "机位", "必打卡", "遛娃"],
 }
 
-# 第 1 层：与研究无关、需要剔除的内容（对应原研究"剔除地名/天气/时间"）
+# Layer 1: content unrelated to the study that must be removed (matching the original study's "remove place names/weather/time")
 IRRELEVANT_WORDS = ["天气", "下雨", "晴天", "阴天", "气温", "几度", "季节", "几月", "周末", "假期",
                     "公司组织", "出差", "路过", "上班", "机场", "高铁站", "酒店预订", "行程安排",
                     "第一天", "第二天", "第三天", "攻略"]
 
 # ============================================================
-# 五、属性级情感词典（本地，不烧 API 额度）
-#     作用：给"句子"打情感分，从而得到每个类别的属性情感均值
-#     想更专业可以换成大连理工情感词典 / 知网 HowNet（见 6.4）
+# 5. Aspect-level sentiment lexicon (local, burns no API quota)
+#     Purpose: score each "sentence" so we can average aspect sentiment per category
+#     For more rigor you can switch to the Dalian University of Technology sentiment lexicon / HowNet (see 6.4)
 # ============================================================
 POS_WORDS = {
     "美": 1, "漂亮": 1, "好看": 1, "精致": 1, "震撼": 1.5, "惊艳": 1.5, "值得": 1, "推荐": 1,
@@ -140,46 +140,46 @@ NEG_WORDS = {
     "无聊": 1, "没意思": 1, "一般": 0.5, "普通": 0.5, "吵": 1, "闹": 0.8, "假": 1,
     "过度开发": 1.2, "强制消费": 2, "乱收费": 2, "找不到": 0.8, "迷路": 0.8, "累": 0.6,
 }
-# 程度副词：对情感词强度做加权
+# Degree adverbs: weight the strength of sentiment words
 DEGREE_WORDS = {"非常": 1.8, "很": 1.5, "太": 1.7, "特别": 1.7, "超": 1.8, "极其": 2.0,
                 "十分": 1.7, "格外": 1.7, "有点": 0.6, "稍微": 0.5, "略": 0.5, "不太": 0.5}
-# 否定词：出现于情感词前 3 个字符内 → 情感翻转
+# Negation words: appearing within 3 characters before a sentiment word -> flip the sentiment
 NEGATION_WORDS = ["不", "没", "无", "别", "非", "未", "毫无", "谈不上"]
 
 # ============================================================
-# 六、情感分析方式
+# 6. Sentiment analysis method
 # ============================================================
-# "baidu"   = 调百度智能云 NLP（推荐，评论级精度最高）
-# "snownlp" = 本地离线（免费兜底，精度略低）
+# "baidu"   = call Baidu AI Cloud NLP (recommended, highest review-level accuracy)
+# "snownlp" = local offline (free fallback, slightly lower accuracy)
 SENTIMENT_METHOD = "baidu"
 
-# 百度智能云 NLP（去 https://console.bce.baidu.com/ai/ 申请，见 6.1）
-BAIDU_API_KEY    = ""     # ← 填你的 API Key
-BAIDU_SECRET_KEY = ""     # ← 填你的 Secret Key
-BAIDU_QPS_SLEEP  = 0.35   # 每次请求后的间隔秒数（免费版 QPS≈2，别调太小）
-BAIDU_MAX_BYTES  = 1000   # 单次提交文本字节上限（接口硬限制 2048 字节，留安全余量）
+# Baidu AI Cloud NLP (apply at https://console.bce.baidu.com/ai/, see 6.1)
+BAIDU_API_KEY    = ""     # <- put your API Key here
+BAIDU_SECRET_KEY = ""     # <- put your Secret Key here
+BAIDU_QPS_SLEEP  = 0.35   # seconds between requests (free tier QPS is about 2; do not set this too small)
+BAIDU_MAX_BYTES  = 1000   # per-request text byte limit (API hard limit is 2048 bytes; keep a safety margin)
 
 # ============================================================
-# 七、随机森林与统计
+# 7. Random forest and statistics
 # ============================================================
 RANDOM_STATE = 42
-TEST_SIZE    = 0.20          # 与原文一致：80% 训练 / 20% 验证
+TEST_SIZE    = 0.20          # Same as the paper: 80% train / 20% validation
 RF_N_ESTIMATORS = 500
 RF_MIN_SAMPLES_LEAF = 5
 CV_FOLDS = 5
 
-# 句级类别判定阈值。分类模型有时会"过度预测"（一个句子的提及类别偏多），
-# 表现为 09 脚本里出现"某类提及率 > 90%"的诊断警告。
-# 遇到这种情况，把阈值调到 0.6 或 0.7 再重跑 09 脚本即可。
+# Sentence-level category decision threshold. The classifier sometimes "over-predicts" (a sentence gets too many categories),
+# which shows up in script 09 as a "some category mention rate > 90%" diagnostic warning.
+# In that case, raise the threshold to 0.6 or 0.7 and re-run script 09.
 CLF_PROB_THRESHOLD = 0.5
 
-# 采用"纯东栅"和"纯西栅"评论做主分析；"双栅"评论单独做稳健性检验
+# Use "East-only" and "West-only" reviews for the main analysis; "both" reviews are used separately for robustness checks
 MAIN_SITES = [SITE_EAST, SITE_WEST]
 
 # ============================================================
-# 八、文件名（统一管理，避免写错）
+# 8. File names (managed in one place to avoid typos)
 # ============================================================
-F_COMMENTS_RAW   = DATA_RAW / "comments_raw.csv"        # 03 清洗的输入
+F_COMMENTS_RAW   = DATA_RAW / "comments_raw.csv"        # input for 03 cleaning
 F_COMMENTS_CLEAN = DATA_CLEAN / "comments_clean.csv"
 F_SENTENCES      = DATA_CLEAN / "sentences.csv"
 F_SENT_LABEL_RULE= DATA_CLEAN / "sentences_rule_label.csv"

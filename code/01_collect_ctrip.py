@@ -1,20 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-携程评论采集器（cURL 驱动版）
+Ctrip comment collector (cURL-driven version)
 
-设计思路：
-  平台接口经常变，与其硬编码接口，不如让你把浏览器里"能跑通的请求"原样粘过来。
-  本脚本解析 cURL 文本 → 变成 Python 请求 → 自动翻页 → 保存 JSON + CSV。
-  接口一变，你只要重新复制一次 cURL，脚本不用改。
+Design rationale:
+  Platform APIs change all the time. Rather than hard-coding an endpoint, paste the request that
+  works in your browser verbatim. The script parses the cURL text -> builds Python requests ->
+  paginates automatically -> saves JSON + CSV; when the API changes, just copy the cURL again.
 
-用法：
-  1) 把 Copy as cURL 的内容保存到  data/raw/ctrip_curl.txt
-  2) 探测模式（先跑这个！）：
+Usage:
+  1) Save the "Copy as cURL" content to  data/raw/ctrip_curl.txt
+  2) Probe mode (run this first!):
          python code/01_collect_ctrip.py --probe
-     它会请求第一页并把字段结构打印出来，同时存一份样例 JSON。
-  3) 正式采集：
+     It requests the first page, prints the field structure and stores a sample JSON.
+  3) Actual collection:
          python code/01_collect_ctrip.py --site 西栅 --max-pages 200
-     支持断点续采：中断后重跑，会跳过已经采过的页。
+     Resumable: after an interruption, rerun it and already-collected pages are skipped.
 """
 import argparse
 import json
@@ -33,18 +33,18 @@ import config as C
 try:
     import requests
 except ImportError:
-    print("缺少 requests 库：python -m pip install requests")
+    print("Missing the requests library: python -m pip install requests")
     sys.exit(1)
 
 
 # ============================================================
-# 一、解析 cURL
+# 1. Parsing cURL
 # ============================================================
 def read_text_compat(path) -> str:
     """
-    自动识别文本编码。
-    记事本「另存为」在中文 Windows 上默认是 ANSI(GBK)，直接用 utf-8 读会报
-    UnicodeDecodeError 或把中文读成乱码，导致 cURL 里的中文参数发错。
+    Detect the text encoding automatically.
+    On Chinese Windows, Notepad's "Save as" defaults to ANSI (GBK), so reading it as utf-8
+    raises UnicodeDecodeError or garbles Chinese and makes the cURL parameters wrong.
     """
     raw = Path(path).read_bytes()
     for enc in ("utf-8-sig", "utf-8", "gbk", "gb18030"):
@@ -56,30 +56,30 @@ def read_text_compat(path) -> str:
 
 
 def parse_curl(text: str):
-    """把 Copy as cURL (bash) 的文本解析成 (url, headers, body_dict)"""
-    # 清理换行续行符
+    """Parse "Copy as cURL (bash)" text into (url, headers, body_dict)"""
+    # Normalize line continuations
     text = text.replace("\\\n", " ").replace("^\n", " ").replace("`\n", " ")
     text = re.sub(r"\s+", " ", text).strip()
 
-    # 提取 URL
+    # Extract the URL
     m = re.search(r"curl\s+(?:-X\s+\w+\s+)?['\"]([^'\"]+)['\"]", text)
     if not m:
         m = re.search(r"curl\s+([^\s'\"-][^\s'\"]*)", text)
     if not m:
-        raise ValueError("没解析出 URL，请确认粘贴的是完整的 cURL（以 curl ' 开头）")
+        raise ValueError("could not parse the URL; make sure you pasted a complete cURL (starting with curl ')")
     url = m.group(1)
 
-    # 提取 headers
+    # Extract headers
     headers = {}
     for hm in re.finditer(r"-H\s+'([^:']+):\s*([^']*)'", text):
         k, v = hm.group(1).strip(), hm.group(2).strip()
-        if k.startswith(":"):          # http2 伪头，丢掉
+        if k.startswith(":"):          # http2 pseudo-header, drop it
             continue
         if k.lower() in ("content-length", "host", "accept-encoding", "connection"):
             continue
         headers[k] = v
 
-    # 提取 body
+    # Extract the body
     body_raw = None
     for pat in (r"--data-raw\s+'([^']*)'", r"--data\s+'([^']*)'",
                 r"--data-raw\s+\"([^\"]*)\"", r"--data\s+\"([^\"]*)\""):
@@ -108,9 +108,9 @@ SIZE_KEYS = ("pagesize", "limit", "rows", "count")
 
 def find_page_field(body, _path=()):
     """
-    递归查找分页字段，返回 (page_path, size_path)。
-    path 是「从根到该字段」的键路径，例如 ['arg', 'pageIndex']。
-    携程等平台常把分页参数藏在 arg / head 这类外层对象里，只查顶层会找不到。
+    Recursively locate the pagination fields and return (page_path, size_path).
+    path is the key path from the root to that field, e.g. ['arg', 'pageIndex'].
+    Ctrip often hides pagination in outer objects like arg / head, so a top-level lookup fails.
     """
     if not isinstance(body, dict):
         return None, None
@@ -148,7 +148,7 @@ def get_nested(d: dict, path):
 
 
 # ============================================================
-# 二、从返回 JSON 里挖评论（结构自适应）
+# 2. Mining comments out of the returned JSON (structure-adaptive)
 # ============================================================
 TEXT_KEYS = ["content", "commentContent", "text", "reviewContent", "comment", "body"]
 TIME_KEYS = ["publishTime", "publishDate", "createTime", "commentTime", "date", "publishTimeStr"]
@@ -157,7 +157,7 @@ ID_KEYS = ["commentId", "id", "reviewId", "commentID"]
 
 
 def _walk_lists(obj, path=""):
-    """递归找出所有"元素是 dict 且含文本字段"的列表"""
+    """Recursively find every list whose elements are dicts containing a text field"""
     found = []
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -175,7 +175,7 @@ def pick(d: dict, keys, default=None):
     for k in keys:
         if k in d and d[k] not in (None, ""):
             return d[k]
-    # 大小写不敏感兜底
+    # Case-insensitive fallback
     low = {str(k).lower(): v for k, v in d.items()}
     for k in keys:
         if k.lower() in low and low[k.lower()] not in (None, ""):
@@ -202,7 +202,7 @@ def extract_comments(resp_json, platform="携程", poi=""):
 
 
 # ============================================================
-# 三、主流程
+# 3. Main flow
 # ============================================================
 CURL_FILE = C.DATA_RAW / "ctrip_curl.txt"
 RAW_DIR = C.DATA_RAW / "ctrip_json"
@@ -223,29 +223,29 @@ def save_ckpt(ck):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--site", default="西栅", help="页面所属景点，写进 poi_name 字段")
+    ap.add_argument("--site", default="西栅", help="scenic area this page belongs to, written into the poi_name field")
     ap.add_argument("--max-pages", type=int, default=200)
-    ap.add_argument("--sleep", type=float, default=2.5, help="每页间隔基准秒数")
-    ap.add_argument("--probe", action="store_true", help="只请求第一页并打印字段结构")
+    ap.add_argument("--sleep", type=float, default=2.5, help="base number of seconds between pages")
+    ap.add_argument("--probe", action="store_true", help="only request the first page and print the field structure")
     ap.add_argument("--platform", default="携程")
     args = ap.parse_args()
 
     if not CURL_FILE.exists():
-        print(f"找不到 {CURL_FILE}\n请按手册 3.2 把 Copy as cURL 的内容保存到该文件。")
+        print(f"Cannot find {CURL_FILE}\nSave the 'Copy as cURL' content to that file as described in handbook section 3.2.")
         sys.exit(1)
 
     url, headers, body = parse_curl(read_text_compat(CURL_FILE))
     page_path, size_path = find_page_field(body)
     print("=" * 60)
-    print(f"URL        : {url}")
-    print(f"请求体字段 : {list(body.keys()) if isinstance(body, dict) else '(非 JSON / 无 body)'}")
+    print(f"URL         : {url}")
+    print(f"Body fields : {list(body.keys()) if isinstance(body, dict) else '(not JSON / no body)'}")
     if page_path:
-        print(f"分页字段   : {'.'.join(map(str, page_path))}"
-              f"  (每页条数: {'.'.join(map(str, size_path)) if size_path else '未识别'})")
+        print(f"Page field  : {'.'.join(map(str, page_path))}"
+              f"  (items per page: {'.'.join(map(str, size_path)) if size_path else 'not detected'})")
     else:
-        print("分页字段   : (未识别 → 只会采到第 1 页)")
-        print("   排查：在 F12 的 Payload 里看看分页参数叫什么名字，")
-        print("         并把名字告诉我；或手动把 cURL 里的 pageIndex 从 1 改成 2 再复制一次。")
+        print("Page field  : (not detected -> only page 1 will be collected)")
+        print("   Diagnose: look at the Payload in F12 to see what the pagination parameter is called,")
+        print("             and tell me the name; or change pageIndex from 1 to 2 in the cURL and copy it again.")
     print("=" * 60)
 
     sess = requests.Session()
@@ -262,35 +262,35 @@ def main():
                 r = sess.post(url, json=payload, timeout=25)
                 if r.status_code == 200:
                     return r.json()
-                print(f"  第 {page} 页 HTTP {r.status_code}，第 {attempt+1} 次重试…")
+                print(f"  page {page} returned HTTP {r.status_code}, retry #{attempt+1}...")
             except Exception as e:
-                print(f"  第 {page} 页异常 {type(e).__name__}: {e}，第 {attempt+1} 次重试…")
+                print(f"  page {page} raised {type(e).__name__}: {e}, retry #{attempt+1}...")
             time.sleep(3 + attempt * 5)
         return None
 
-    # ---------- 探测模式 ----------
+    # ---------- Probe mode ----------
     if args.probe:
         js = fetch(1)
         if js is None:
-            print("请求失败。常见原因：Cookie 过期、URL 复制的是别的请求、需要代理。")
+            print("Request failed. Common causes: expired Cookie, the URL belongs to a different request, a proxy is required.")
             sys.exit(1)
         (RAW_DIR / "probe_page1.json").write_text(
             json.dumps(js, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"原始返回已保存: {RAW_DIR / 'probe_page1.json'}")
+        print(f"Raw response saved: {RAW_DIR / 'probe_page1.json'}")
         lists = _walk_lists(js)
         if not lists:
-            print("!! 没在返回里找到含文本字段的列表。请打开 probe_page1.json 人工看一眼：")
-            print("   如果返回的是 HTML 或错误提示，说明 cURL 复制错了（可能复制成了页面请求）")
-            print("   如果有评论但字段名很特殊，请把字段名告诉我，我帮你改 TEXT_KEYS")
+            print("!! No list containing a text field was found in the response. Open probe_page1.json and look at it manually:")
+            print("   If the response is HTML or an error message, the cURL was copied wrong (probably a page request)")
+            print("   If there are comments but the field names are unusual, tell me the names and I will adjust TEXT_KEYS")
         for path, lst in lists:
-            print(f"  找到评论列表: {path}  长度 {len(lst)}")
-            print(f"  首条字段: {list(lst[0].keys())}")
-            print(f"  首条样例: {json.dumps(lst[0], ensure_ascii=False)[:300]}")
+            print(f"  comment list found: {path}  length {len(lst)}")
+            print(f"  first item fields: {list(lst[0].keys())}")
+            print(f"  first item sample: {json.dumps(lst[0], ensure_ascii=False)[:300]}")
         rows = extract_comments(js, args.platform, args.site)
-        print(f"  按默认字段规则能提取出 {len(rows)} 条")
+        print(f"  {len(rows)} comments can be extracted with the default field rules")
         return
 
-    # ---------- 正式采集 ----------
+    # ---------- Actual collection ----------
     ck = load_ckpt()
     done = set(ck["done_pages"])
     rows = ck["rows"]
@@ -302,7 +302,7 @@ def main():
             continue
         js = fetch(page)
         if js is None:
-            print(f"第 {page} 页连续失败，停止。已采 {len(rows)} 条，重跑可续采。")
+            print(f"page {page} failed repeatedly, stopping. {len(rows)} collected so far; rerun to resume.")
             break
         new = extract_comments(js, args.platform, args.site)
         added = 0
@@ -318,11 +318,11 @@ def main():
         save_ckpt(ck)
         (RAW_DIR / f"page_{page:04d}.json").write_text(
             json.dumps(js, ensure_ascii=False), encoding="utf-8")
-        print(f"第 {page:>4} 页: 抓到 {len(new):>3} 条, 新增 {added:>3} 条, 累计 {len(rows)} 条")
+        print(f"page {page:>4}: fetched {len(new):>3}, new {added:>3}, total {len(rows)}")
 
         empty_streak = empty_streak + 1 if len(new) == 0 else 0
         if empty_streak >= 3:
-            print("连续 3 页没有新评论，认为已到末尾，停止。")
+            print("3 consecutive pages had no new comments; assuming the end, stopping.")
             break
         time.sleep(args.sleep + random.random() * 1.5)
 
@@ -330,10 +330,10 @@ def main():
         df = pd.DataFrame(rows)
         df.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
         print("=" * 60)
-        print(f"完成：共 {len(df)} 条 → {OUT_CSV}")
-        print(f"日期范围: {df['date'].min()} ~ {df['date'].max()}")
+        print(f"Done: {len(df)} comments in total → {OUT_CSV}")
+        print(f"Date range: {df['date'].min()} ~ {df['date'].max()}")
     else:
-        print("一条都没采到，请先跑 --probe 排查。")
+        print("No comment was collected at all; run --probe first to diagnose.")
 
 
 if __name__ == "__main__":

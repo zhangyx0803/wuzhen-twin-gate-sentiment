@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-数据清洗：合并多平台原始数据 → 去噪 → 去重 → 删广告 → 删复制的景区简介 → 统一字段。
+Data cleaning: merge raw data from multiple platforms → denoise → deduplicate → drop ads → drop copied scenic-area blurbs → unify fields.
 
-输入：data/raw/ 下所有 .csv / .xlsx（自动识别列名）
-输出：data/clean/comments_clean.csv
-      outputs/logs/清洗记录.csv
+Input: every .csv / .xlsx under data/raw/ (column names detected automatically)
+Output: data/clean/comments_clean.csv
+        outputs/logs/清洗记录.csv
 """
 import re
 import sys
@@ -18,7 +18,7 @@ import config as C
 from textutil import content_words, split_sentences, norm_text
 
 # ============================================================
-# 列名别名：不管你从哪个平台、哪个工具导出来，只要列名对得上就能自动识别
+# Column-name aliases: whichever platform or tool exported the file, it is detected automatically
 # ============================================================
 COL_ALIASES = {
     "content": ["content", "comment", "text", "review", "body", "评论内容", "评价内容", "点评内容",
@@ -35,7 +35,7 @@ COL_ALIASES = {
     "useful": ["useful", "usefulCount", "点赞", "有用", "有用数", "赞同数"],
 }
 
-# 这些文件不是评论数据，清洗时跳过
+# These files are not comment data, skip them while cleaning
 SKIP_FILES = {"site_attributes_amap.csv", "site_attributes_manual.csv"}
 
 
@@ -59,11 +59,11 @@ def map_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def read_csv_compat(path):
     """
-    稳健地读 CSV：
-      1) 自动尝试 UTF-8 / UTF-8-BOM / GBK 编码
-         —— Excel「另存为 CSV」和八爪鱼导出在中文 Windows 上默认是 GBK(ANSI)，
-            硬写 utf-8 会直接报 UnicodeDecodeError
-      2) 兼容新旧 pandas 的坏行参数（新版 on_bad_lines，旧版 error_bad_lines）
+    Read a CSV robustly:
+      1) try the UTF-8 / UTF-8-BOM / GBK encodings automatically
+         -- Excel's "Save as CSV" and Octoparse exports default to GBK (ANSI) on Chinese
+            Windows, where hard-coding utf-8 raises UnicodeDecodeError outright
+      2) support the bad-line argument of both new and old pandas (on_bad_lines vs error_bad_lines)
     """
     import io
     text = None
@@ -75,8 +75,8 @@ def read_csv_compat(path):
             continue
     if text is None:
         text = path.read_bytes().decode("utf-8", errors="replace")
-        print(f"  [警告] {path.name} 的编码无法识别，已强行解码，中文可能乱码；"
-              f"建议用记事本打开后另存为 UTF-8")
+        print(f"  [WARNING] the encoding of {path.name} could not be detected, decoded forcibly, Chinese may be garbled; "
+              f"suggest saving it as UTF-8 in Notepad")
 
     buf = io.StringIO(text)
     try:
@@ -90,8 +90,8 @@ def load_raw() -> pd.DataFrame:
     files = sorted(list(C.DATA_RAW.glob("*.csv")) + list(C.DATA_RAW.glob("*.xlsx")))
     files = [f for f in files if f.name not in SKIP_FILES and not f.name.startswith("~$")]
     if not files:
-        print(f"[错误] {C.DATA_RAW} 里没有找到任何 csv/xlsx 文件。")
-        print("       请先完成阶段 3 的数据采集，或把八爪鱼导出的文件放进去。")
+        print(f"[ERROR] no csv/xlsx file found in {C.DATA_RAW}.")
+        print("       Finish the stage 3 data collection first, or put the Octoparse exports there.")
         sys.exit(1)
 
     frames = []
@@ -103,23 +103,23 @@ def load_raw() -> pd.DataFrame:
             raw_cols = list(df.columns)
             df = map_columns(df)
             if df.empty:
-                print(f"  [跳过] {f.name}：找不到评论内容列（现有列 {raw_cols}）")
+                print(f"  [skip] {f.name}: no comment-content column found (existing columns {raw_cols})")
                 continue
             df["source_file"] = f.name
             frames.append(df)
-            print(f"  [读入] {f.name}: {len(df)} 条")
+            print(f"  [read] {f.name}: {len(df)} rows")
         except Exception as e:
-            print(f"  [跳过] {f.name}: {type(e).__name__} {e}")
+            print(f"  [skip] {f.name}: {type(e).__name__} {e}")
     if not frames:
-        print("[错误] 所有文件都没有可用的评论内容列。请检查列名，或告诉我你的列名。")
+        print("[ERROR] none of the files has a usable comment-content column. Check the column names, or tell me your column names.")
         sys.exit(1)
     return pd.concat(frames, ignore_index=True)
 
 
 def normalize(text: str) -> str:
     t = str(text)
-    t = re.sub(r"<[^>]+>", " ", t)                       # HTML 标签
-    t = re.sub(r"https?://\S+|www\.\S+", " ", t)          # 链接
+    t = re.sub(r"<[^>]+>", " ", t)                       # HTML tags
+    t = re.sub(r"https?://\S+|www\.\S+", " ", t)          # links
     t = re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]", " ", t)  # emoji
     t = t.replace("\u3000", " ")
     t = re.sub(r"\s+", " ", t).strip()
@@ -154,8 +154,8 @@ def parse_rating(s):
 
 def drop_repeated_sentences(texts, log):
     """
-    对应原研究做法：同一句话重复出现 >=3 次，且去掉停用词后 >=6 个词
-    → 判定为游客直接复制的景区介绍，删除该句。
+    Follows the original study: a sentence repeated >= 3 times with >= 6 words after
+    stop-word removal is taken as a scenic-area blurb copied by tourists, so it is deleted.
     """
     cnt = Counter()
     for t in texts:
@@ -165,10 +165,10 @@ def drop_repeated_sentences(texts, log):
                 cnt[n] += 1
     bad = {k for k, v in cnt.items() if v >= C.DUP_SENT_MIN_COUNT}
     log.append(("疑似复制的句子种类数", len(bad)))
-    print(f"  识别出 {len(bad)} 种被反复复制的句子（将逐条删除）")
+    print(f"  found {len(bad)} distinct sentences that were copied repeatedly (each one will be removed)")
     for k, _ in cnt.most_common(5):
         if cnt[k] >= C.DUP_SENT_MIN_COUNT:
-            print(f"    出现 {cnt[k]:>4} 次: {k[:40]}")
+            print(f"    appears {cnt[k]:>4} times: {k[:40]}")
 
     out = []
     removed = 0
@@ -185,48 +185,48 @@ def drop_repeated_sentences(texts, log):
 def main():
     log = []
     print("=" * 60)
-    print("读取原始数据…")
+    print("Reading the raw data...")
     df = load_raw()
     log.append(("原始评论总数", len(df)))
-    print(f"原始合计 {len(df)} 条")
+    print(f"{len(df)} rows in total before cleaning")
 
-    # ---- 1. 基础清洗 ----
+    # ---- 1. Basic cleaning ----
     df["content"] = df["content"].astype(str).map(normalize)
     df = df[df["content"].str.len() >= C.MIN_LEN]
     log.append((f"去除少于 {C.MIN_LEN} 字的评论后", len(df)))
-    print(f"去除过短评论后 {len(df)} 条")
+    print(f"{len(df)} rows after dropping comments that are too short")
 
     df["content"] = df["content"].str.slice(0, C.MAX_LEN)
 
-    # ---- 2. 去广告 ----
+    # ---- 2. Drop ads ----
     pat = "|".join(re.escape(w) for w in C.AD_WORDS)
     adv = df["content"].str.contains(pat, case=False, na=False, regex=True)
     df = df[~adv]
     log.append(("去除广告/引流评论后", len(df)))
-    print(f"去除广告后 {len(df)} 条（删了 {int(adv.sum())} 条）")
+    print(f"{len(df)} rows after dropping ads ({int(adv.sum())} removed)")
 
-    # ---- 3. 去重 ----
+    # ---- 3. Deduplicate ----
     df["_norm"] = df["content"].map(norm_text)
     before = len(df)
     df = df[df["_norm"].str.len() > 0]
     df = df.drop_duplicates(subset=["_norm"])
     log.append(("完全重复评论删除数", before - len(df)))
-    print(f"去重后 {len(df)} 条（删了 {before - len(df)} 条）")
+    print(f"{len(df)} rows after deduplication ({before - len(df)} removed)")
 
-    # 同一用户在不同平台复制粘贴：按内容前 60 字近似去重
+    # The same user copy-pasting across platforms: near-deduplicate on the first 60 characters
     before = len(df)
     df["_key"] = df["_norm"].str.slice(0, 60)
     df = df.drop_duplicates(subset=["_key"], keep="first")
     log.append(("近似重复评论删除数", before - len(df)))
-    print(f"近似去重后 {len(df)} 条")
+    print(f"{len(df)} rows after near-deduplication")
 
-    # ---- 4. 删复制的景区简介 ----
+    # ---- 4. Remove copied scenic-area blurbs ----
     df["content"] = drop_repeated_sentences(df["content"].tolist(), log)
     df = df[df["content"].str.len() >= C.MIN_LEN]
     log.append(("删除简介复制句后", len(df)))
-    print(f"删除简介复制句后 {len(df)} 条")
+    print(f"{len(df)} rows after removing copied blurb sentences")
 
-    # ---- 5. 字段规整 ----
+    # ---- 5. Field normalization ----
     df["date"] = df["date"].map(parse_date)
     df["rating"] = df["rating"].map(parse_rating)
     df["platform"] = df["platform"].replace("", pd.NA).fillna("未知")
@@ -238,20 +238,20 @@ def main():
     df = df.drop(columns=["_norm", "_key"]).reset_index(drop=True)
     df["cid"] = ["C%06d" % i for i in range(len(df))]
 
-    # ---- 6. 输出 ----
+    # ---- 6. Output ----
     df.to_csv(C.F_COMMENTS_CLEAN, index=False, encoding="utf-8-sig")
     pd.DataFrame(log, columns=["清洗环节", "剩余/删除数量"]).to_csv(
         C.OUT_LOG / "清洗记录.csv", index=False, encoding="utf-8-sig")
 
     print("=" * 60)
-    print(f"最终 {len(df)} 条 → {C.F_COMMENTS_CLEAN}")
-    print(f"列：{list(df.columns)}")
-    print(f"评论长度：中位数 {df['n_char'].median():.0f} 字，均值 {df['n_char'].mean():.0f} 字")
+    print(f"Finally {len(df)} rows → {C.F_COMMENTS_CLEAN}")
+    print(f"Columns: {list(df.columns)}")
+    print(f"Comment length: median {df['n_char'].median():.0f} characters, mean {df['n_char'].mean():.0f} characters")
     if df["date"].notna().any():
-        print(f"时间范围：{df['date'].min().date()} ~ {df['date'].max().date()}")
-    print(f"平台分布：\n{df['platform'].value_counts().to_string()}")
-    print(f"景点标签分布：\n{df['poi_name'].value_counts().head(10).to_string()}")
-    print("\n提示：如果评论数骤降到很少，多半是 MIN_LEN 或广告词过滤太狠，去 config.py 调。")
+        print(f"Time range: {df['date'].min().date()} ~ {df['date'].max().date()}")
+    print(f"Platform distribution:\n{df['platform'].value_counts().to_string()}")
+    print(f"Scenic-area label distribution:\n{df['poi_name'].value_counts().head(10).to_string()}")
+    print("\nTip: if the comment count collapses, MIN_LEN or the ad-word filter is probably too aggressive; tune it in config.py.")
 
 
 if __name__ == "__main__":

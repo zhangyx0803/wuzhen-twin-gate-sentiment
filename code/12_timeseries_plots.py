@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-时间序列分析 + 全部论文级图表输出（300 dpi）。
+Time-series analysis + all paper-quality figure output (300 dpi).
 
-产出图（outputs/figures/）：
-    图1_情感分布对比.png        堆叠柱状图
-    图2_属性提及率对比.png      双栅横向对比条形图（按差值排序）
-    图3_属性情感对比.png        哑铃图（同一属性在两栅的情感差异）
-    图7_月度情感趋势.png        月度积极占比折线（含 3 个月滚动平均）
-    图8_年-月热力图.png         年份 × 月份 的积极情感占比热力图
-    图9_评论量与评分趋势.png    月度评论量柱 + 平均评分折线
+Figures produced (outputs/figures/):
+    图1_情感分布对比.png        stacked bar chart
+    图2_属性提及率对比.png      side-by-side horizontal bars for the two scenic areas (sorted by difference)
+    图3_属性情感对比.png        dumbbell chart (sentiment difference of the same aspect between the two scenic areas)
+    图7_月度情感趋势.png        monthly positive-share line (with a 3-month rolling average)
+    图8_年-月热力图.png         heatmap of the positive-sentiment share by year x month
+    图9_评论量与评分趋势.png    monthly review-count bars + average-rating line
 """
 import sys
 from pathlib import Path
@@ -22,7 +22,7 @@ from textutil import set_chinese_font
 
 plt = set_chinese_font()
 if plt is None:
-    print("matplotlib 不可用，请先安装：python -m pip install matplotlib")
+    print("matplotlib is not available; install it first: python -m pip install matplotlib")
     sys.exit(1)
 
 CATS = list(C.CATEGORIES.keys())
@@ -91,7 +91,7 @@ def fig3_aspect_sentiment(df):
         rows.append(r)
     t = pd.DataFrame(rows).dropna()
     if t.empty:
-        print("  (属性情感样本不足，跳过图3)")
+        print("  (not enough aspect-sentiment samples; skipping Fig. 3)")
         return
     t = t.sort_values(E)
     fig, ax = plt.subplots(figsize=(8.4, 7.6))
@@ -112,7 +112,7 @@ def fig3_aspect_sentiment(df):
 def fig7_monthly(df):
     d = df[df["ym"].astype(str).str.len() >= 7].copy()
     if d.empty:
-        print("  (无有效月份，跳过时间序列图)")
+        print("  (no valid months; skipping the time-series figures)")
         return
     g = d.groupby(["site", "ym"]).agg(积极占比=("is_positive", "mean"),
                                       评论数=("cid", "count")).reset_index()
@@ -196,7 +196,7 @@ def fig9_volume(df):
 def fig_importance():
     fp = C.OUT_TABLE / "随机森林_两栅重要性对比.csv"
     if not fp.exists():
-        print("  (还没有随机森林结果，跳过重要性对比图。先跑 11_rf_shap.py)")
+        print("  (no random-forest results yet; skipping the importance comparison figure. Run 11_rf_shap.py first)")
         return
     t = pd.read_csv(fp)
     t["类别"] = t["特征"].str.replace(r"^(men_|sen_)", "", regex=True).str.split("_").str[-1]
@@ -216,13 +216,13 @@ def fig_importance():
 
 def main():
     if not C.F_FEATURES.exists():
-        print("找不到 features_comment.csv，请先运行 09_build_features.py")
+        print("features_comment.csv not found; run 09_build_features.py first")
         sys.exit(1)
     df = pd.read_csv(C.F_FEATURES, encoding="utf-8-sig")
     df = df[df["site"].isin([E, W])].copy()
     df["ym"] = df["ym"].astype(str)
-    print(f"绘图数据 {len(df)} 条\n")
-    print("生成图表：")
+    print(f"Plot data: {len(df)} reviews\n")
+    print("Generating figures:")
     fig1_sentiment(df)
     fig2_mention(df)
     fig3_aspect_sentiment(df)
@@ -230,8 +230,8 @@ def main():
     fig7_monthly(df)
     fig8_heatmap(df)
     fig9_volume(df)
-    print(f"\n全部图表 → {C.OUT_FIG}")
-    print("注意：matplotlib 默认字体若无中文会显示方框，请确认 00_check_env.py 报了字体 OK。")
+    print(f"\nAll figures → {C.OUT_FIG}")
+    print("Note: with matplotlib's default font, Chinese text shows as boxes; make sure 00_check_env.py reports the font as OK.")
 
 
 if __name__ == "__main__":

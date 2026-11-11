@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""环境自检：跑通这个脚本，说明环境没问题。"""
+"""Environment self-check: once this script runs, the environment is fine."""
 import sys
 import platform
 
@@ -10,25 +10,25 @@ def check(name, optional=False):
         print(f"  [OK]   {name:<14} {ver}")
         return True
     except Exception as e:
-        flag = "[可选]" if optional else "[缺失]"
+        flag = "[optional]" if optional else "[missing]"
         print(f"  {flag} {name:<14} {type(e).__name__}: {e}")
         return optional
 
 def main():
     print("=" * 60)
-    print("乌镇双栅研究 - 环境自检")
+    print("Wuzhen 双栅 study - environment self-check")
     print("=" * 60)
-    print(f"Python 版本 : {sys.version.split()[0]}")
-    print(f"操作系统    : {platform.system()} {platform.release()}")
-    print(f"Python 路径 : {sys.executable}")
+    print(f"Python version   : {sys.version.split()[0]}")
+    print(f"Operating system : {platform.system()} {platform.release()}")
+    print(f"Python path      : {sys.executable}")
     if sys.version_info < (3, 9):
         print("!" * 62)
-        print("!! 严重警告：你的 Python 版本低于 3.9，本项目的核心库装不上。")
-        print("!! Python 3.7 已于 2023 年 6 月停止维护，请二选一：")
-        print("!!   [推荐] 安装 Anaconda（自带 Python 3.12 和全部科学计算库）")
+        print("!! SEVERE WARNING: your Python version is below 3.9, so this project's core libraries cannot be installed.")
+        print("!! Python 3.7 reached end of life in June 2023. Pick one of these two options:")
+        print("!!   [recommended] Install Anaconda (it ships Python 3.12 and every scientific library)")
         print("!!           https://www.anaconda.com/download")
-        print("!!           装完后从「开始菜单 → Anaconda Prompt」进入，再 cd 到项目目录")
-        print("!!   [备选] 只想先试一下：pip install -r requirements-py37.txt")
+        print("!!           After installing, open 'Start Menu → Anaconda Prompt' and cd into the project folder")
+        print("!!   [alternative] If you only want a quick try: pip install -r requirements-py37.txt")
         print("!" * 62)
     print("-" * 60)
 
@@ -37,15 +37,15 @@ def main():
            "statsmodels", "joblib", "snownlp"]
 
     ok = True
-    print("核心库：")
+    print("Core libraries:")
     for m in core:
         ok &= check(m)
-    print("推荐/可选库：")
+    print("Recommended/optional libraries:")
     for m in opt:
         check(m, optional=True)
 
     print("-" * 60)
-    # 中文字体检查（Windows 上必须设置，否则图上全是方框）
+    # Chinese font check (mandatory on Windows, otherwise every chart shows empty boxes)
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -53,40 +53,40 @@ def main():
         names = {f.name for f in font_manager.fontManager.ttflist}
         for cand in ["Microsoft YaHei", "SimHei", "SimSun", "KaiTi"]:
             if cand in names:
-                print(f"  [OK]   中文字体可用: {cand}")
+                print(f"  [OK]   Chinese font available: {cand}")
                 break
         else:
-            print("  [警告] 未找到常见中文字体，图表中文会显示为方框")
+            print("  [WARNING] no common Chinese font found, Chinese text in charts will show as boxes")
     except Exception as e:
-        print(f"  [警告] 字体检查失败: {e}")
+        print(f"  [WARNING] font check failed: {e}")
 
     print("-" * 60)
-    # 目录检查
+    # Directory check
     try:
         from config import (DATA_RAW, DATA_CLEAN, DATA_LABEL, DATA_FEATURE,
                             OUT_TABLE, OUT_FIG, OUT_LOG)
         for d in (DATA_RAW, DATA_CLEAN, DATA_LABEL, DATA_FEATURE, OUT_TABLE, OUT_FIG, OUT_LOG):
-            print(f"  [OK]   目录: {d}")
+            print(f"  [OK]   directory: {d}")
     except Exception as e:
-        print(f"  [错误] 无法导入 config.py，请确认它和本脚本在同一文件夹: {e}")
+        print(f"  [ERROR] cannot import config.py; make sure it is in the same folder as this script: {e}")
         ok = False
 
     print("=" * 60)
     if ok:
-        print("环境自检通过，可以进入下一步（阶段 3 数据采集）。")
+        print("Environment check passed; you can move on to the next step (stage 3, data collection).")
     else:
         old = sys.version_info < (3, 9)
         req = "requirements-py37.txt" if old else "requirements.txt"
-        print("有核心库缺失，请先执行：")
+        print("Some core libraries are missing, please run:")
         print(f"  python -m pip install -r {req} -i https://pypi.tuna.tsinghua.edu.cn/simple")
         if old:
             print("")
-            print("提示：Python 3.7 上这些库多半装不上（scikit-learn / shap 尤其容易失败）。")
-            print("      更省事的做法是装 Anaconda 后用 Anaconda Prompt 重来。")
+            print("Note: on Python 3.7 most of these libraries will fail to install (scikit-learn / shap especially).")
+            print("      The easier route is to install Anaconda and start over from Anaconda Prompt.")
         else:
             print("")
-            print("提示：如果报 GBK / UnicodeDecodeError，说明 requirements 文件被编辑器改成了非 UTF-8，")
-            print("      请重新从原始交付里复制一份 requirements.txt。")
+            print("Note: if you see a GBK / UnicodeDecodeError, the requirements file was re-saved as non-UTF-8,")
+            print("      so please copy requirements.txt again from the original delivery.")
 
 if __name__ == "__main__":
     main()

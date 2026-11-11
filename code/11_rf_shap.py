@@ -1,24 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-随机森林 + SHAP：量化各属性对游客积极情感的贡献度，并对比东栅/西栅。
+Random forest + SHAP: quantify how much each aspect contributes to tourists' positive sentiment, and compare the East and West Scenic Areas.
 
-模型设定：
-    因变量 y        : is_positive（1=积极，0=非积极）—— 主模型
-    自变量 X        : 21 个类别的「提及」(men_) + 21 个类别的「属性情感」(sen_)
-                      + 控制变量 log_len / rating / month
-    划分            : 80% 训练 / 20% 验证（与原研究一致）
-    评估            : 5 折交叉验证 AUC / F1
-    解释            : 置换重要性（Permutation Importance）+ SHAP 值 + 偏依赖图
+Model setup:
+    Dependent variable y    : is_positive (1=positive, 0=not positive) -- main model
+    Independent variables X : "mention" (men_) of 21 categories + "aspect sentiment" (sen_) of 21 categories
+                              + control variables log_len / rating / month
+    Split                   : 80% train / 20% validation (same as the original study)
+    Evaluation              : 5-fold cross-validated AUC / F1
+    Interpretation          : permutation importance + SHAP values + partial dependence plots
 
-稳健性检验（自动跑）：
-    R1 因变量换成三分类 y_3cls
-    R2 模型换成逻辑回归
-    R3 两组下采样到相同样本量
-    R4 只用长评论（>= 30 字）
+Robustness checks (run automatically):
+    R1 dependent variable switched to the 3-class y_3cls
+    R2 model switched to logistic regression
+    R3 both groups downsampled to the same sample size
+    R4 long reviews only (>= 30 characters)
 
-输入：data/feature/features_comment.csv
-输出：outputs/tables/随机森林_*.csv / .txt
-      outputs/figures/图4_*.png、图5_*.png、图6_*.png
+Input: data/feature/features_comment.csv
+Output: outputs/tables/随机森林_*.csv / .txt
+      outputs/figures/图4_*.png, 图5_*.png, 图6_*.png
 """
 import sys
 import warnings
@@ -56,7 +56,7 @@ def build_xy(df, ycol="is_positive"):
     sen = ["sen_" + c for c in CATS if "sen_" + c in df.columns]
     ctrl = [c for c in ["log_len", "rating", "month"] if c in df.columns]
     X = df[men + sen + ctrl].copy()
-    # sen_ 的缺失表示"该评论没提这个属性"，填 0（0 = 中性/未提及）
+    # A missing sen_ means "the review did not mention this aspect"; fill 0 (0 = neutral / not mentioned)
     X[sen] = X[sen].fillna(0.0)
     if "rating" in X.columns:
         X["rating"] = X["rating"].fillna(X["rating"].median())
@@ -65,14 +65,14 @@ def build_xy(df, ycol="is_positive"):
     keep = [c for c in X.columns if X[c].nunique(dropna=False) > 1]
     dropped = [c for c in X.columns if c not in keep]
     if dropped:
-        print(f"    （去掉无变化的特征 {len(dropped)} 个）")
+        print(f"    (dropped {len(dropped)} constant features)")
     return X[keep], df[ycol].astype(int), keep
 
 
 def fit_one(df, tag, ycol="is_positive", model="rf"):
     X, y, feats = build_xy(df, ycol)
     if len(y) < 100 or y.nunique() < 2:
-        print(f"  [{tag}] 样本或类别不足，跳过")
+        print(f"  [{tag}] insufficient samples or classes, skipping")
         return None
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=C.TEST_SIZE,
                                           random_state=C.RANDOM_STATE, stratify=y)
@@ -108,7 +108,7 @@ def fit_one(df, tag, ycol="is_positive", model="rf"):
     print(f"  [{tag}/{model}] n={len(y)} AUC={res['验证集AUC']} "
           f"F1={res['验证集F1']} CV-AUC={res.get('5折CV_AUC均值')}")
 
-    # ---- 置换重要性（比内置重要性更可靠）----
+    # ---- Permutation importance (more reliable than built-in importance) ----
     pi = permutation_importance(clf, Xte, yte, n_repeats=20,
                                 random_state=C.RANDOM_STATE, n_jobs=-1,
                                 scoring="roc_auc")
@@ -129,24 +129,24 @@ def fit_one(df, tag, ycol="is_positive", model="rf"):
 
 def main():
     if not C.F_FEATURES.exists():
-        print("找不到 features_comment.csv，请先运行 09_build_features.py")
+        print("features_comment.csv not found; run 09_build_features.py first")
         sys.exit(1)
 
     df = pd.read_csv(C.F_FEATURES, encoding="utf-8-sig")
     df = df[df["site"].isin([E, W])].copy()
-    print(f"主分析样本 {len(df)} 条（{E} {int((df['site'] == E).sum())} | "
-          f"{W} {int((df['site'] == W).sum())}）\n")
+    print(f"Main analysis sample {len(df)} reviews ({E} {int((df['site'] == E).sum())} | "
+          f"{W} {int((df['site'] == W).sum())})\n")
 
     results, imps = [], []
 
-    print("【主模型】分组建模")
+    print("[Main model] Fit models by group")
     for s in (E, W):
         r = fit_one(df[df["site"] == s], s)
         if r:
             results.append(r["res"])
             imps.append(r["imp"])
 
-    print("\n【汇总模型】加入景区变量做对照")
+    print("\n[Pooled model] Add the scenic-area variable as a control")
     d2 = df.copy()
     d2["is_west"] = (d2["site"] == W).astype(int)
     r = fit_one(d2, "全样本")
@@ -161,7 +161,7 @@ def main():
     imp_all = pd.concat(imps, ignore_index=True)
     imp_all.to_csv(C.OUT_TABLE / "随机森林_特征重要性.csv", index=False, encoding="utf-8-sig")
 
-    # ---------- 两栅重要性排名对比 ----------
+    # ---------- Comparison of importance rankings between the two scenic areas ----------
     pe = imp_all[imp_all["组"] == E].set_index("特征")["置换重要性"]
     pw = imp_all[imp_all["组"] == W].set_index("特征")["置换重要性"]
     cmp_df = pd.DataFrame({"东栅重要性": pe, "西栅重要性": pw}).fillna(0.0)
@@ -173,11 +173,11 @@ def main():
     cmp_df.to_csv(C.OUT_TABLE / "随机森林_两栅重要性对比.csv",
                   index=False, encoding="utf-8-sig")
 
-    print("\n两栅最重要的 12 个特征：")
+    print("\nTop 12 features in the two scenic areas:")
     print(cmp_df.head(12)[["特征", "东栅重要性", "西栅重要性",
                            "东栅排名", "西栅排名", "排名差(东-西)"]].to_string(index=False))
 
-    # 排名一致性
+    # Rank consistency
     from scipy import stats as st
     rho, pval = st.spearmanr(cmp_df["东栅重要性"], cmp_df["西栅重要性"])
     top_e = set(cmp_df.nsmallest(10, "东栅排名")["特征"])
@@ -193,12 +193,12 @@ def main():
     (C.OUT_TABLE / "随机森林_驱动结构对比.txt").write_text(txt, encoding="utf-8")
     print("\n" + txt)
 
-    # ---------- 稳健性检验 ----------
-    print("【稳健性检验】")
+    # ---------- Robustness checks ----------
+    print("[Robustness checks]")
     rob = []
     for s in (E, W):
         sub = df[df["site"] == s]
-        # R1 三分类
+        # R1 three-class target
         try:
             X, y3, _ = build_xy(sub, "y_3cls")
             Xtr, Xte, ytr, yte = train_test_split(
@@ -211,7 +211,7 @@ def main():
                                            zero_division=0), 4)})
         except Exception as ex:
             rob.append({"组": s, "检验": "R1 因变量=三分类", "指标": "失败", "取值": str(ex)[:40]})
-        # R2 逻辑回归
+        # R2 logistic regression
         r2 = fit_one(sub, s, model="lr")
         if r2:
             rob.append({"组": s, "检验": "R2 模型=逻辑回归", "指标": "验证集AUC",
@@ -222,12 +222,12 @@ def main():
             rho2, _ = st.spearmanr(pe1[common], pe2[common])
             rob.append({"组": s, "检验": "R2 模型=逻辑回归", "指标": "与RF的排名相关性",
                         "取值": round(float(rho2), 4)})
-        # R4 长评论
+        # R4 long reviews
         r4 = fit_one(sub[sub["n_char"] >= 30], s + "-长评论")
         if r4:
             rob.append({"组": s, "检验": "R4 仅长评论(>=30字)", "指标": "验证集AUC",
                         "取值": r4["res"]["验证集AUC"]})
-    # R3 等样本量
+    # R3 equal sample size
     ne = min(len(df[df["site"] == E]), len(df[df["site"] == W]))
     for s in (E, W):
         sub = df[df["site"] == s].sample(n=ne, random_state=C.RANDOM_STATE)
@@ -240,13 +240,13 @@ def main():
     print(rob_df.to_string(index=False))
 
     # ---------- SHAP ----------
-    print("\n【SHAP 解释】")
+    print("\n[SHAP interpretation]")
     try:
         import shap
         plt = set_chinese_font()
         make_plots = plt is not None
     except ImportError:
-        print("  未安装 shap，跳过 SHAP 分析。安装：pip install shap")
+        print("  shap is not installed; skipping SHAP analysis. Install with: pip install shap")
         shap = None
         make_plots = False
 
@@ -281,19 +281,19 @@ def main():
                 plt.tight_layout()
                 fig.savefig(C.OUT_FIG / f"图5_SHAP摘要_{s}.png", dpi=300, bbox_inches="tight")
                 plt.close(fig)
-                print(f"  SHAP 摘要图 → 图5_SHAP摘要_{s}.png")
+                print(f"  SHAP summary plot → 图5_SHAP摘要_{s}.png")
         if shap_rows:
             sh = pd.concat(shap_rows, ignore_index=True)
             sh.to_csv(C.OUT_TABLE / "随机森林_SHAP重要性.csv", index=False, encoding="utf-8-sig")
-            print("\nSHAP 平均绝对贡献 Top8：")
+            print("\nTop 8 mean absolute SHAP contributions:")
             for s in (E, W):
                 top = sh[sh["组"] == s].head(8)
-                print(f"  {s}: " + "、".join(f"{r[0]}({r[1]:.3f})"
+                print(f"  {s}: " + ", ".join(f"{r[0]}({r[1]:.3f})"
                                              for r in top.itertuples(index=False)))
-            print("\n提示：SHAP 重要性排序与置换重要性若大体一致，说明结论稳健；")
-            print("      若差异较大，论文中应以两者都提到的特征作为核心结论。")
+            print("\nTip: if the SHAP importance ranking broadly agrees with permutation importance, the conclusions are robust;")
+            print("      if they differ substantially, report the features highlighted by both as the core findings in the paper.")
 
-    # ---------- 偏依赖图 ----------
+    # ---------- Partial dependence plots ----------
     if shap is not None and make_plots:
         from sklearn.inspection import PartialDependenceDisplay
         for s in (E, W):
@@ -315,13 +315,13 @@ def main():
             plt.tight_layout()
             fig.savefig(C.OUT_FIG / f"图6_偏依赖图_{s}.png", dpi=300, bbox_inches="tight")
             plt.close(fig)
-            print(f"  偏依赖图 → 图6_偏依赖图_{s}.png")
+            print(f"  Partial dependence plot → 图6_偏依赖图_{s}.png")
 
     print("=" * 60)
-    print("完成。论文里报结果时记得写清：")
-    print("  · 特征重要性的度量方式（置换重要性 + SHAP 双重验证）")
-    print("  · 与之对应的 AUC / F1（模型可信度）")
-    print("  · 稳健性检验的 4 种设定是否支持主结论")
+    print("Done. When reporting results in the paper, remember to state clearly:")
+    print("  · how feature importance was measured (permutation importance + SHAP cross-check)")
+    print("  · the corresponding AUC / F1 (model reliability)")
+    print("  · whether the 4 robustness settings support the main conclusions")
 
 
 if __name__ == "__main__":

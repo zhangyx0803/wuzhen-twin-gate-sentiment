@@ -1,22 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-情感分析（两层设计）。
+Sentiment analysis (two-layer design).
 
-【评论级】调用百度智能云 NLP 情感倾向分析（或用 SnowNLP 离线兜底）
-    输出 0=消极 / 1=中立 / 2=积极 + 置信度 + 正负概率
-【属性级】本地情感词典逐句打分（不消耗任何 API 额度）
-    输出 -1 ~ +1 的连续情感值
+[Review level] Calls Baidu AI Cloud NLP sentiment classification (or falls back to offline SnowNLP)
+    Outputs 0=negative / 1=neutral / 2=positive + confidence + positive/negative probabilities
+[Aspect level] Scores sentence by sentence with a local sentiment lexicon (consumes no API quota)
+    Outputs a continuous sentiment value in -1 ~ +1
 
-工程特性：
-    * 断点续跑：中断后重跑不会重复调用 API（结果实时落盘到 jsonl）
-    * 自动限速：遵守 QPS，触发限流自动等待重试
-    * 额度用尽自动停止并提示，不会白跑
-    * 超长文本按字节安全截断（避免把中文截成半个字）
+Engineering features:
+    * Resumable: re-running after an interruption never calls the API twice (results are flushed to jsonl in real time)
+    * Automatic rate limiting: respects QPS and waits to retry when rate limited
+    * Stops with a message when the quota runs out, so no work is wasted
+    * Over-long text is truncated safely by bytes (never splits a Chinese character in half)
 
-输入：data/clean/comments_clean.csv、data/clean/sentences_clf_label.csv
-输出：data/clean/comments_sentiment.csv
+Input: data/clean/comments_clean.csv, data/clean/sentences_clf_label.csv
+Output: data/clean/comments_sentiment.csv
       data/clean/sentences_sentiment.csv
-      outputs/tables/情感分析_一致性检验.txt（如果你做了人工抽检）
+      outputs/tables/情感分析_一致性检验.txt (if you did a manual spot check)
 """
 import json
 import re
@@ -38,7 +38,7 @@ SENT_LABEL = {0: "消极", 1: "中立", 2: "积极"}
 
 
 # ============================================================
-# 一、百度 NLP
+# 1. Baidu NLP
 # ============================================================
 def get_token():
     import requests
@@ -50,7 +50,7 @@ def get_token():
         except Exception:
             pass
     if not C.BAIDU_API_KEY or not C.BAIDU_SECRET_KEY:
-        raise RuntimeError("请先在 config.py 里填写 BAIDU_API_KEY / BAIDU_SECRET_KEY")
+        raise RuntimeError("Please fill in BAIDU_API_KEY / BAIDU_SECRET_KEY in config.py first")
     r = requests.post("https://aip.baidubce.com/oauth/2.0/token",
                       params={"grant_type": "client_credentials",
                               "client_id": C.BAIDU_API_KEY,
@@ -58,7 +58,7 @@ def get_token():
                       timeout=20)
     js = r.json()
     if "access_token" not in js:
-        raise RuntimeError(f"获取 token 失败：{js}")
+        raise RuntimeError(f"Failed to obtain token: {js}")
     TOKEN_CACHE.write_text(json.dumps({
         "access_token": js["access_token"],
         "expire_at": time.time() + int(js.get("expires_in", 2592000)) - 600,
@@ -74,7 +74,7 @@ def safe_truncate(text: str, max_bytes: int) -> str:
 
 
 def baidu_sentiment(text: str, token: str, session):
-    """返回 dict 或 None（失败时）"""
+    """Return a dict, or None on failure"""
     body = {"text": safe_truncate(str(text), C.BAIDU_MAX_BYTES)}
     url = "https://aip.baidubce.com/rpc/2.0/nlp/v1/sentiment_classify"
     for attempt in range(3):
@@ -84,17 +84,17 @@ def baidu_sentiment(text: str, token: str, session):
             js = r.json()
             if "error_code" in js:
                 code = js["error_code"]
-                if code in (18,):                       # QPS 超限
+                if code in (18,):                       # QPS limit exceeded
                     time.sleep(1.5 * (attempt + 1))
                     continue
-                if code in (17, 19):                    # 日/总量额度用尽
-                    raise QuotaExhausted(f"额度用尽 (error_code={code}: {js.get('error_msg')})")
-                if code in (110, 111):                  # token 失效
-                    if TOKEN_CACHE.exists():            # 兼容 Python 3.7
+                if code in (17, 19):                    # daily/total quota exhausted
+                    raise QuotaExhausted(f"Quota exhausted (error_code={code}: {js.get('error_msg')})")
+                if code in (110, 111):                  # token invalid
+                    if TOKEN_CACHE.exists():            # Python 3.7 compatibility
                         TOKEN_CACHE.unlink()
                     token = get_token()
                     continue
-                print(f"    [接口错误] {js}")
+                print(f"    [API error] {js}")
                 return None
             item = js["items"][0]
             return {"sentiment": int(item["sentiment"]),
@@ -104,7 +104,7 @@ def baidu_sentiment(text: str, token: str, session):
         except QuotaExhausted:
             raise
         except Exception as e:
-            print(f"    [请求异常 {type(e).__name__}] {e}")
+            print(f"    [Request exception {type(e).__name__}] {e}")
             time.sleep(1.0 + attempt)
     return None
 
@@ -114,7 +114,7 @@ class QuotaExhausted(Exception):
 
 
 # ============================================================
-# 二、SnowNLP 离线兜底
+# 2. SnowNLP offline fallback
 # ============================================================
 _SNOW_OK = True
 try:
@@ -127,7 +127,7 @@ def snownlp_sentiment(text: str):
     if not _SNOW_OK:
         return None
     try:
-        p = float(SnowNLP(str(text)).sentiments)   # 0~1，越大越积极
+        p = float(SnowNLP(str(text)).sentiments)   # 0~1, the larger the more positive
     except Exception:
         return None
     if p >= 0.6:
@@ -141,15 +141,15 @@ def snownlp_sentiment(text: str):
 
 
 # ============================================================
-# 三、本地情感词典（属性级）
+# 3. Local sentiment lexicon (aspect level)
 # ============================================================
 NEG_WINDOW = 3
 
 
 def dict_sentiment(sentence: str):
     """
-    基于情感词典 + 程度副词 + 否定词规则，给句子打 -1 ~ +1 的情感分。
-    返回 (score, n_hits)
+    Score a sentence from -1 to +1 with a sentiment lexicon + degree adverbs + negation rules.
+    Returns (score, n_hits).
     """
     toks = tokenize(str(sentence))
     if not toks:
@@ -176,13 +176,13 @@ def dict_sentiment(sentence: str):
         score += (-v) if neg else v
     if hits == 0:
         return 0.0, 0
-    # 用 hits 做长度归一，再做非线性压缩到 -1~1
+    # Normalize by hits for length, then compress non-linearly to -1~1
     raw = score / np.sqrt(hits)
     return float(np.tanh(raw / 2.0)), hits
 
 
 # ============================================================
-# 四、主流程
+# 4. Main pipeline
 # ============================================================
 def run_comment_sentiment(df: pd.DataFrame) -> pd.DataFrame:
     done = {}
@@ -195,21 +195,21 @@ def run_comment_sentiment(df: pd.DataFrame) -> pd.DataFrame:
                 done[d["cid"]] = d
             except Exception:
                 pass
-        print(f"  发现缓存 {len(done)} 条，将跳过这些 (断点续跑)")
+        print(f"  Found {len(done)} cached records; skipping them (resume)")
 
     method = C.SENTIMENT_METHOD
     todo = [r for r in df.itertuples(index=False) if r.cid not in done]
-    print(f"  待分析 {len(todo)} 条（方式：{method}）")
+    print(f"  {len(todo)} records to analyze (method: {method})")
 
     sess = None
     token = None
     if method == "baidu" and todo:
-        import requests                     # 只有真正调 API 时才需要 requests
+        import requests                     # requests is only needed when actually calling the API
         token = get_token()
         sess = requests.Session()
     elif method == "snownlp" and not _SNOW_OK:
-        print("  SnowNLP 未安装，且 SENTIMENT_METHOD='snownlp'。")
-        print("  解决：pip install snownlp   或   把 config.py 的 SENTIMENT_METHOD 改成 'baidu'")
+        print("  SnowNLP is not installed, and SENTIMENT_METHOD='snownlp'.")
+        print("  Fix: pip install snownlp   or   change SENTIMENT_METHOD in config.py to 'baidu'")
         sys.exit(1)
 
     fout = CACHE_COMMENT.open("a", encoding="utf-8")
@@ -233,18 +233,18 @@ def run_comment_sentiment(df: pd.DataFrame) -> pd.DataFrame:
             fout.write(json.dumps(rec, ensure_ascii=False) + "\n")
             if k % 200 == 0:
                 fout.flush()
-                print(f"    进度 {k}/{len(todo)}  成功 {ok} 失败 {fail}")
+                print(f"    Progress {k}/{len(todo)}  ok {ok}  failed {fail}")
     except QuotaExhausted as e:
         fout.flush()
-        print(f"\n!! 百度接口额度用尽：{e}")
-        print(f"   已处理 {ok} 条并落盘，不会丢。你有三个选择：")
-        print("   ① 等到次日额度刷新后重跑本脚本（会从断点继续）")
-        print("   ② 把 config.py 的 SENTIMENT_METHOD 改成 'snownlp' 兜底剩余部分")
-        print("   ③ 见手册 6.3 路线 D：用大模型 API 批量打标")
+        print(f"\n!! Baidu API quota exhausted: {e}")
+        print(f"   {ok} records have been processed and saved, nothing is lost. You have three options:")
+        print("   1) Wait for the quota to reset the next day and re-run this script (it resumes from the checkpoint)")
+        print("   2) Change SENTIMENT_METHOD in config.py to 'snownlp' for the remainder")
+        print("   3) See route D in section 6.3 of the manual: batch-label with an LLM API")
     finally:
         fout.close()
 
-    # ---------- 合并 ----------
+    # ---------- Merge ----------
     s = pd.DataFrame(list(done.values()))
     out = df.merge(s, on="cid", how="left")
     out["sentiment_label"] = out["sentiment"].map(SENT_LABEL)
@@ -255,10 +255,10 @@ def run_comment_sentiment(df: pd.DataFrame) -> pd.DataFrame:
 def run_sentence_sentiment():
     src = C.F_SENT_CLF if C.F_SENT_CLF.exists() else C.F_SENT_LABEL_RULE
     if not src.exists():
-        print("  找不到句级文件，跳过属性级情感。请先运行 04/05/07 脚本。")
+        print("  Sentence-level file not found; skipping aspect-level sentiment. Run scripts 04/05/07 first.")
         return None
     sdf = pd.read_csv(src, encoding="utf-8-sig")
-    print(f"  句级情感（本地词典）: {len(sdf)} 句")
+    print(f"  Sentence-level sentiment (local lexicon): {len(sdf)} sentences")
     res = [dict_sentiment(s) for s in sdf["sentence"].astype(str)]
     sdf["sent_score"] = [round(a, 4) for a, _ in res]
     sdf["sent_hits"] = [b for _, b in res]
@@ -269,12 +269,12 @@ def run_sentence_sentiment():
 
 
 def consistency_check(df):
-    """如果你做了人工情感抽检，这里自动算 Kappa 一致度"""
+    """Compute Cohen's Kappa automatically if you did a manual sentiment spot check"""
     fp = C.DATA_LABEL / "sentiment_check.xlsx"
     if not fp.exists():
-        print("\n[提示] 想提高论文可信度，建议做一次情感分析人工抽检：")
-        print("       从 comments_sentiment.csv 随机抽 300 条，人工标 积极/中立/消极，")
-        print(f"       保存为 {fp}（列名：cid, 人工情感），本脚本会自动算 Kappa。")
+        print("\n[Tip] To strengthen the paper, consider a manual spot check of the sentiment analysis:")
+        print("       Randomly sample 300 reviews from comments_sentiment.csv and label them positive/neutral/negative by hand,")
+        print(f"       save them as {fp} (columns: cid, 人工情感); this script computes Kappa automatically.")
         return
     try:
         from sklearn.metrics import cohen_kappa_score, accuracy_score
@@ -284,7 +284,7 @@ def consistency_check(df):
     m = chk.merge(df[["cid", "sentiment_label"]], on="cid", how="left")
     m = m.dropna(subset=["人工情感", "sentiment_label"])
     if len(m) < 30:
-        print("[一致性检验] 有效样本 <30，跳过")
+        print("[Consistency check] Valid sample <30, skipping")
         return
     acc = accuracy_score(m["人工情感"], m["sentiment_label"])
     kap = cohen_kappa_score(m["人工情感"], m["sentiment_label"])
@@ -302,30 +302,30 @@ def consistency_check(df):
 
 def main():
     if not C.F_COMMENTS_CLEAN.exists():
-        print("找不到 comments_clean.csv，请先运行 03、04 脚本。")
+        print("comments_clean.csv not found; run scripts 03 and 04 first.")
         sys.exit(1)
     df = pd.read_csv(C.F_COMMENTS_CLEAN, encoding="utf-8-sig")
 
     print("=" * 60)
-    print("【1/2】评论级情感分析")
+    print("[1/2] Review-level sentiment analysis")
     out = run_comment_sentiment(df)
     out.to_csv(C.F_SENTIMENT, index=False, encoding="utf-8-sig")
 
-    print("\n情感分布：")
+    print("\nSentiment distribution:")
     print(out["sentiment_label"].value_counts(dropna=False).to_string())
-    print("\n分景区情感分布（占比）：")
+    print("\nSentiment distribution by scenic area (shares):")
     if "site" in out.columns:
         tab = pd.crosstab(out["site"], out["sentiment_label"], normalize="index")
         print((tab * 100).round(2).to_string())
 
-    print("\n【2/2】句级属性情感（本地词典）")
+    print("\n[2/2] Sentence-level aspect sentiment (local lexicon)")
     run_sentence_sentiment()
 
     consistency_check(out)
 
     print("=" * 60)
-    print(f"评论级情感 → {C.F_SENTIMENT}")
-    print(f"句级情感   → {C.F_SENT_SENTIMENT}")
+    print(f"Review-level sentiment → {C.F_SENTIMENT}")
+    print(f"Sentence-level sentiment   → {C.F_SENT_SENTIMENT}")
 
 
 if __name__ == "__main__":
